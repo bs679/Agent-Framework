@@ -1,0 +1,22 @@
+{
+  "name": "chca-agent-onboarding",
+  "version": "0.3.0",
+  "description": "CHCA Agent Onboarding Form — generates 6 config files per agent",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --experimental-vm-modules src/generators/__tests__/run.js"
+  },
+  "dependencies": {
+    "jszip": "^3.10.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.0",
+    "vite": "^6.0.0",
+    "tailwindcss": "^4.0.0"
+  }
+}
