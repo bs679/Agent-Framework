@@ -1,0 +1,20 @@
+# Runtime artifacts
+.aios/
+agents/*/.env
+agents/*/memory/
+docker-compose.yml
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+*.egg
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
