@@ -1,0 +1,236 @@
+{
+  "name": "Email Thread Intelligence",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "email-thread-intelligence",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "eti-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [220, 300],
+      "webhookId": "email-thread-intelligence"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst emailId = body.email_id;\nconst subject = body.subject || '';\nconst threadLength = body.thread_length || 0;\nconst sender = body.sender || '';\nconst ownerAgent = body.owner_agent || '';\n\nif (!emailId) {\n  throw new Error('Missing required field: email_id');\n}\n\nreturn [{\n  json: {\n    email_id: emailId,\n    subject: subject,\n    thread_length: threadLength,\n    sender: sender,\n    owner_agent: ownerAgent\n  }\n}];"
+      },
+      "id": "eti-validate",
+      "name": "Validate Webhook Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $credentials.pulseApiBaseUrl }}/api/v1/email/{{ $json.email_id }}/thread",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "eti-fetch-thread",
+      "name": "Fetch Full Email Thread",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "pulse-api-token",
+          "name": "Pulse API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const threadData = $input.first().json;\nconst messages = threadData.messages || threadData.thread || threadData.data || [];\nconst emailMeta = $('Validate Webhook Payload').first().json;\n\n// Build a text representation of the thread for Ollama\n// IMPORTANT: This goes to Ollama (localhost) ONLY — never to any external API\nlet threadText = `Subject: ${emailMeta.subject}\\n`;\nthreadText += `Thread length: ${emailMeta.thread_length} messages\\n`;\nthreadText += `From: ${emailMeta.sender}\\n\\n`;\n\nif (Array.isArray(messages)) {\n  for (const msg of messages) {\n    const from = msg.from || msg.sender || 'Unknown';\n    const date = msg.date || msg.sent_at || '';\n    const body = msg.body || msg.content || msg.text || '';\n    threadText += `--- ${from} (${date}) ---\\n${body}\\n\\n`;\n  }\n} else if (typeof threadData === 'string') {\n  threadText += threadData;\n} else {\n  threadText += JSON.stringify(threadData, null, 2).substring(0, 4000);\n}\n\nreturn [{\n  json: {\n    thread_text: threadText,\n    email_id: emailMeta.email_id,\n    owner_agent: emailMeta.owner_agent,\n    subject: emailMeta.subject\n  }\n}];"
+      },
+      "id": "eti-prepare",
+      "name": "Prepare Thread for Ollama",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:11434/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'llama3.1:8b', prompt: 'Summarize this email thread. Key points? What action is needed? Keep response under 150 words.\\n\\n' + $json.thread_text, stream: false }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "eti-ollama",
+      "name": "Ollama Summarize Thread",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ollamaResponse = $input.first().json.response || '';\nconst meta = $('Prepare Thread for Ollama').first().json;\n\n// Extract suggested action from the summary\nconst actionPatterns = [\n  /action[s]?\\s*(?:needed|required|recommended)?\\s*[:.]\\s*(.+?)(?:\\.|$)/i,\n  /(?:should|need to|must|recommend)\\s+(.+?)(?:\\.|$)/i\n];\n\nlet suggestedAction = '';\nfor (const pattern of actionPatterns) {\n  const match = ollamaResponse.match(pattern);\n  if (match) {\n    suggestedAction = match[1].trim();\n    break;\n  }\n}\n\nif (!suggestedAction) {\n  suggestedAction = 'Review summary and determine next steps';\n}\n\nreturn [{\n  json: {\n    email_id: meta.email_id,\n    subject: meta.subject,\n    summary: ollamaResponse,\n    suggested_action: suggestedAction,\n    owner_agent: meta.owner_agent,\n    processed_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "eti-format",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $credentials.pulseApiBaseUrl }}/api/v1/agents/{{ $json.owner_agent }}/inbox",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ type: 'email_summary', email_id: $json.email_id, subject: $json.subject, summary: $json.summary, suggested_action: $json.suggested_action, processed_at: $json.processed_at }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "eti-post-agent",
+      "name": "Return Summary to Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1540, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "pulse-api-token",
+          "name": "Pulse API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {},
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, email_id: $('Format Response').first().json.email_id, summary: $('Format Response').first().json.summary, suggested_action: $('Format Response').first().json.suggested_action }) }}"
+      },
+      "id": "eti-respond",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1760, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Webhook Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Webhook Payload": {
+      "main": [
+        [
+          {
+            "node": "Fetch Full Email Thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Full Email Thread": {
+      "main": [
+        [
+          {
+            "node": "Prepare Thread for Ollama",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Thread for Ollama": {
+      "main": [
+        [
+          {
+            "node": "Ollama Summarize Thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Summarize Thread": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Return Summary to Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return Summary to Agent": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "pulse",
+      "id": "tag-pulse"
+    },
+    {
+      "name": "webhook",
+      "id": "tag-webhook"
+    },
+    {
+      "name": "email",
+      "id": "tag-email"
+    },
+    {
+      "name": "ollama",
+      "id": "tag-ollama"
+    },
+    {
+      "name": "phase-8",
+      "id": "tag-phase8"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2026-02-21T00:00:00.000Z",
+  "versionId": "1"
+}

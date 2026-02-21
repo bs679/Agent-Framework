@@ -1,0 +1,171 @@
+{
+  "name": "New Member Orientation Trigger",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "new-member-orientation",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "nmo-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [220, 300],
+      "webhookId": "new-member-orientation"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst memberName = body.member_name;\nconst facility = body.facility;\nconst bargainingUnit = body.bargaining_unit;\nconst hireDate = body.hire_date;\n\nif (!memberName || !facility) {\n  throw new Error('Missing required fields: member_name and facility');\n}\n\nreturn [{\n  json: {\n    member_name: memberName,\n    facility: facility,\n    bargaining_unit: bargainingUnit || 'TBD',\n    hire_date: hireDate || new Date().toISOString().split('T')[0]\n  }\n}];"
+      },
+      "id": "nmo-validate",
+      "name": "Validate Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const member = $input.first().json;\nconst now = new Date().toISOString().split('T')[0];\n\n// Calculate 30-day check-in date\nconst thirtyDays = new Date();\nthirtyDays.setDate(thirtyDays.getDate() + 30);\nconst checkInDate = thirtyDays.toISOString().split('T')[0];\n\n// Predefined orientation checklist\nconst checklist = [\n  {\n    title: `Welcome packet: ${member.member_name}`,\n    description: `Prepare and deliver welcome packet for new member ${member.member_name} at ${member.facility}. Include: union constitution, contract summary, steward contact info, grievance procedure overview.`,\n    due_offset_days: 1,\n    priority: 'high'\n  },\n  {\n    title: `Union rights orientation: ${member.member_name}`,\n    description: `Schedule and conduct Weingarten rights orientation for ${member.member_name}. Cover: right to representation, grievance process, contract highlights for ${member.bargaining_unit}.`,\n    due_offset_days: 3,\n    priority: 'high'\n  },\n  {\n    title: `Benefits enrollment review: ${member.member_name}`,\n    description: `Review union benefits enrollment with ${member.member_name}. Ensure they understand health insurance options, pension enrollment, and any supplemental benefits under ${member.bargaining_unit} contract.`,\n    due_offset_days: 5,\n    priority: 'medium'\n  },\n  {\n    title: `Introduce to steward: ${member.member_name}`,\n    description: `Connect ${member.member_name} with their floor/unit steward at ${member.facility}. Ensure they know who to contact for workplace issues.`,\n    due_offset_days: 3,\n    priority: 'high'\n  },\n  {\n    title: `Dues authorization: ${member.member_name}`,\n    description: `Collect signed dues authorization card from ${member.member_name}. Verify payroll deduction is set up with HR at ${member.facility}.`,\n    due_offset_days: 7,\n    priority: 'high'\n  },\n  {\n    title: `Add to communication channels: ${member.member_name}`,\n    description: `Add ${member.member_name} to facility-specific email list, Teams channel, and any ${member.bargaining_unit} group communications.`,\n    due_offset_days: 2,\n    priority: 'medium'\n  },\n  {\n    title: `Contract copy delivery: ${member.member_name}`,\n    description: `Provide ${member.member_name} with a copy of the current collective bargaining agreement for ${member.bargaining_unit} at ${member.facility}.`,\n    due_offset_days: 1,\n    priority: 'medium'\n  }\n];\n\n// Build task items with calculated due dates\nconst tasks = checklist.map(item => {\n  const dueDate = new Date();\n  dueDate.setDate(dueDate.getDate() + item.due_offset_days);\n  return {\n    json: {\n      title: item.title,\n      description: item.description,\n      due_date: dueDate.toISOString().split('T')[0],\n      priority: item.priority,\n      tag: 'orientation',\n      assigned_to: 'execsec',\n      member_name: member.member_name,\n      facility: member.facility,\n      bargaining_unit: member.bargaining_unit\n    }\n  };\n});\n\n// Add 30-day check-in task for Dave\ntasks.push({\n  json: {\n    title: `30-day check-in: ${member.member_name}`,\n    description: `Follow up with ${member.member_name} (${member.facility}, ${member.bargaining_unit}). Hired: ${member.hire_date}. Check: Are they settling in? Any workplace concerns? Connected with steward? Benefits questions?`,\n    due_date: checkInDate,\n    priority: 'medium',\n    tag: 'orientation',\n    assigned_to: 'dave',\n    member_name: member.member_name,\n    facility: member.facility,\n    bargaining_unit: member.bargaining_unit,\n    is_30day_checkin: true\n  }\n});\n\nreturn tasks;"
+      },
+      "id": "nmo-checklist",
+      "name": "Generate Orientation Checklist",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $credentials.pulseApiBaseUrl }}/api/v1/tasks",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ title: $json.title, description: $json.description, due_date: $json.due_date, priority: $json.priority, tag: $json.tag, assigned_to: $json.assigned_to, metadata: { member_name: $json.member_name, facility: $json.facility, bargaining_unit: $json.bargaining_unit } }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "nmo-create-tasks",
+      "name": "Create Tasks in Pulse",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "pulse-api-token",
+          "name": "Pulse API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const allItems = $input.all();\nconst taskCount = allItems.length;\nconst memberName = allItems[0]?.json?.title?.match(/: (.+)$/)?.[1] || 'new member';\n\nreturn [{\n  json: {\n    success: true,\n    tasks_created: taskCount,\n    member_name: memberName,\n    message: `Created ${taskCount} orientation tasks for ${memberName}`\n  }\n}];"
+      },
+      "id": "nmo-summary",
+      "name": "Summarize Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "options": {},
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: $json.success, tasks_created: $json.tasks_created, member_name: $json.member_name, message: $json.message }) }}"
+      },
+      "id": "nmo-respond",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1320, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Payload": {
+      "main": [
+        [
+          {
+            "node": "Generate Orientation Checklist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Orientation Checklist": {
+      "main": [
+        [
+          {
+            "node": "Create Tasks in Pulse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Tasks in Pulse": {
+      "main": [
+        [
+          {
+            "node": "Summarize Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize Results": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "pulse",
+      "id": "tag-pulse"
+    },
+    {
+      "name": "webhook",
+      "id": "tag-webhook"
+    },
+    {
+      "name": "onboarding",
+      "id": "tag-onboarding"
+    },
+    {
+      "name": "phase-8",
+      "id": "tag-phase8"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2026-02-21T00:00:00.000Z",
+  "versionId": "1"
+}

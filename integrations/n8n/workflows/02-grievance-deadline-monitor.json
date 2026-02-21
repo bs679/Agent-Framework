@@ -1,0 +1,272 @@
+{
+  "name": "Grievance Deadline Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "gdm-trigger",
+      "name": "Daily 8:00 AM Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $credentials.pulseApiBaseUrl }}/api/v1/grievances",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "status",
+              "value": "open"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "gdm-fetch",
+      "name": "Fetch Open Grievances",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "pulse-api-token",
+          "name": "Pulse API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const now = new Date();\nconst sevenDaysMs = 7 * 24 * 60 * 60 * 1000;\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const grievances = item.json.grievances || item.json.data || [item.json];\n  for (const g of grievances) {\n    if (!g.due_date) continue;\n    const dueDate = new Date(g.due_date);\n    const diffMs = dueDate.getTime() - now.getTime();\n    const daysRemaining = Math.ceil(diffMs / (24 * 60 * 60 * 1000));\n    if (daysRemaining >= 0 && daysRemaining <= 7) {\n      results.push({\n        json: {\n          case_id: g.case_id || g.id,\n          facility: g.facility,\n          deadline: g.due_date,\n          days_remaining: daysRemaining,\n          subject: g.subject || g.title,\n          status: g.status,\n          within_48h: daysRemaining <= 2\n        }\n      });\n    }\n  }\n}\n\nreturn results.length > 0 ? results : [];"
+      },
+      "id": "gdm-filter",
+      "name": "Filter Due Within 7 Days",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst today = new Date().toISOString().split('T')[0];\nconst items = $input.all();\nconst results = [];\n\nif (!staticData.alertedToday) {\n  staticData.alertedToday = {};\n}\n\n// Reset if it's a new day\nif (staticData.lastAlertDate !== today) {\n  staticData.alertedToday = {};\n  staticData.lastAlertDate = today;\n}\n\nfor (const item of items) {\n  const caseId = item.json.case_id;\n  if (!staticData.alertedToday[caseId]) {\n    staticData.alertedToday[caseId] = true;\n    results.push(item);\n  }\n}\n\nreturn results.length > 0 ? results : [];"
+      },
+      "id": "gdm-dedup",
+      "name": "Dedup Already Alerted Today",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $credentials.pulseApiBaseUrl }}/api/v1/agents/checkin",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ type: 'grievance_deadline', case_id: $json.case_id, facility: $json.facility, deadline: $json.deadline, days_remaining: $json.days_remaining, message: 'Grievance ' + $json.case_id + ' at ' + $json.facility + ' is due in ' + $json.days_remaining + ' day(s) — deadline: ' + $json.deadline }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "gdm-alert",
+      "name": "POST Alert to Agent Checkin",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 200],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "pulse-api-token",
+          "name": "Pulse API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "gdm-48h-check",
+              "leftValue": "={{ $json.within_48h }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "gdm-if-48h",
+      "name": "Within 48 Hours?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1320, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $credentials.msTeamsWebhookUrl }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: 'URGENT: Grievance ' + $json.case_id + ' at ' + $json.facility + ' is due in ' + $json.days_remaining + ' day(s). Deadline: ' + $json.deadline + '. Immediate attention required.' }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "gdm-teams",
+      "name": "POST to MS Teams Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1540, 140]
+    },
+    {
+      "parameters": {},
+      "id": "gdm-done",
+      "name": "Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1540, 340]
+    }
+  ],
+  "connections": {
+    "Daily 8:00 AM Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Open Grievances",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Open Grievances": {
+      "main": [
+        [
+          {
+            "node": "Filter Due Within 7 Days",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Due Within 7 Days": {
+      "main": [
+        [
+          {
+            "node": "Dedup Already Alerted Today",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedup Already Alerted Today": {
+      "main": [
+        [
+          {
+            "node": "POST Alert to Agent Checkin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST Alert to Agent Checkin": {
+      "main": [
+        [
+          {
+            "node": "Within 48 Hours?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Within 48 Hours?": {
+      "main": [
+        [
+          {
+            "node": "POST to MS Teams Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST to MS Teams Webhook": {
+      "main": [
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": {
+    "global": {
+      "alertedToday": {},
+      "lastAlertDate": ""
+    }
+  },
+  "tags": [
+    {
+      "name": "pulse",
+      "id": "tag-pulse"
+    },
+    {
+      "name": "daily",
+      "id": "tag-daily"
+    },
+    {
+      "name": "grievance",
+      "id": "tag-grievance"
+    },
+    {
+      "name": "phase-8",
+      "id": "tag-phase8"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2026-02-21T00:00:00.000Z",
+  "versionId": "1"
+}

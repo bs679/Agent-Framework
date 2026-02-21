@@ -1,0 +1,298 @@
+{
+  "name": "Legislative Calendar Tracker",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "lct-trigger",
+      "name": "Monday 7:00 AM Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.cga.ct.gov/asp/content/legitempage.asp",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "lct-fetch-cga",
+      "name": "Fetch CT General Assembly Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $input.first().json.data || $input.first().json.body || '';\n\n// Keywords to filter for labor-relevant hearings\nconst keywords = [\n  'staffing ratio',\n  'collective bargaining',\n  'healthcare worker',\n  'wages and hours',\n  'nurse staffing',\n  'hospital worker',\n  'sebac',\n  '1199',\n  'afscme',\n  'labor',\n  'union',\n  'health care',\n  'wage',\n  'worker safety',\n  'nursing home',\n  'patient ratio'\n];\n\n// Extract hearing entries from the HTML\n// The CGA page typically has tables or lists of hearings\nconst hearingPattern = /<tr[^>]*>([\\s\\S]*?)<\\/tr>/gi;\nconst hearings = [];\nlet match;\n\nwhile ((match = hearingPattern.exec(html)) !== null) {\n  const rowHtml = match[1];\n  const textContent = rowHtml.replace(/<[^>]*>/g, ' ').replace(/\\s+/g, ' ').trim();\n  \n  if (textContent.length > 20) {\n    const isRelevant = keywords.some(kw => \n      textContent.toLowerCase().includes(kw.toLowerCase())\n    );\n    \n    if (isRelevant) {\n      // Try to extract date, committee, subject from row cells\n      const cells = rowHtml.match(/<td[^>]*>([\\s\\S]*?)<\\/td>/gi) || [];\n      const cellTexts = cells.map(c => c.replace(/<[^>]*>/g, '').trim());\n      \n      hearings.push({\n        json: {\n          raw_text: textContent,\n          date: cellTexts[0] || 'Unknown',\n          committee: cellTexts[1] || 'Unknown',\n          subject: cellTexts[2] || textContent.substring(0, 200),\n          matched_keywords: keywords.filter(kw => \n            textContent.toLowerCase().includes(kw.toLowerCase())\n          )\n        }\n      });\n    }\n  }\n}\n\n// If no table-based hearings found, try a broader text-based approach\nif (hearings.length === 0) {\n  const fullText = html.replace(/<[^>]*>/g, ' ').replace(/\\s+/g, ' ');\n  const sentences = fullText.split(/[.\\n]/).filter(s => s.trim().length > 20);\n  \n  for (const sentence of sentences) {\n    const isRelevant = keywords.some(kw => \n      sentence.toLowerCase().includes(kw.toLowerCase())\n    );\n    if (isRelevant) {\n      hearings.push({\n        json: {\n          raw_text: sentence.trim(),\n          date: 'See details',\n          committee: 'See details',\n          subject: sentence.trim().substring(0, 200),\n          matched_keywords: keywords.filter(kw => \n            sentence.toLowerCase().includes(kw.toLowerCase())\n          )\n        }\n      });\n    }\n  }\n}\n\nif (hearings.length === 0) {\n  return [{ json: { no_results: true, message: 'No labor-relevant hearings found this week' } }];\n}\n\nreturn hearings;"
+      },
+      "id": "lct-extract",
+      "name": "Extract and Filter Hearings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "lct-has-results",
+              "leftValue": "={{ $json.no_results }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "lct-if-results",
+      "name": "Has Relevant Hearings?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst hearingsList = items.map(item => {\n  return `- ${item.json.date}: ${item.json.committee} — ${item.json.subject} [Keywords: ${item.json.matched_keywords.join(', ')}]`;\n}).join('\\n');\n\nreturn [{\n  json: {\n    prompt_text: hearingsList,\n    hearing_count: items.length,\n    items: items.map(i => i.json)\n  }\n}];"
+      },
+      "id": "lct-prepare",
+      "name": "Prepare Ollama Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:11434/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'llama3.1:8b', prompt: 'Briefly summarize these CT legislative hearings relevant to healthcare labor. Rate each high/medium/low relevance. Be concise.\\n\\nHearings:\\n' + $json.prompt_text, stream: false }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "lct-ollama",
+      "name": "Ollama Summarize Hearings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1320, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ollamaResponse = $input.first().json.response || '';\nconst hearingItems = $('Prepare Ollama Prompt').first().json.items || [];\n\nconst results = hearingItems.map(hearing => ({\n  json: {\n    title: hearing.subject,\n    date: hearing.date,\n    committee: hearing.committee,\n    matched_keywords: hearing.matched_keywords,\n    ai_summary: ollamaResponse\n  }\n}));\n\nreturn results;"
+      },
+      "id": "lct-format",
+      "name": "Format Tasks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1540, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $credentials.pulseApiBaseUrl }}/api/v1/tasks",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ title: 'Legislative: ' + $json.title, description: $json.ai_summary, tag: 'legislative', assigned_to: 'dave', due_date: $json.date, metadata: { committee: $json.committee, keywords: $json.matched_keywords } }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "lct-create-task",
+      "name": "Create Task in Pulse",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1760, 200],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "pulse-api-token",
+          "name": "Pulse API Token"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "lct-done",
+      "name": "Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1980, 300]
+    },
+    {
+      "parameters": {},
+      "id": "lct-no-hearings",
+      "name": "No Relevant Hearings",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1100, 420]
+    }
+  ],
+  "connections": {
+    "Monday 7:00 AM Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch CT General Assembly Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch CT General Assembly Page": {
+      "main": [
+        [
+          {
+            "node": "Extract and Filter Hearings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract and Filter Hearings": {
+      "main": [
+        [
+          {
+            "node": "Has Relevant Hearings?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Relevant Hearings?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Ollama Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Relevant Hearings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Ollama Prompt": {
+      "main": [
+        [
+          {
+            "node": "Ollama Summarize Hearings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Summarize Hearings": {
+      "main": [
+        [
+          {
+            "node": "Format Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Tasks": {
+      "main": [
+        [
+          {
+            "node": "Create Task in Pulse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Task in Pulse": {
+      "main": [
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Relevant Hearings": {
+      "main": [
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "pulse",
+      "id": "tag-pulse"
+    },
+    {
+      "name": "weekly",
+      "id": "tag-weekly"
+    },
+    {
+      "name": "legislative",
+      "id": "tag-legislative"
+    },
+    {
+      "name": "ollama",
+      "id": "tag-ollama"
+    },
+    {
+      "name": "phase-8",
+      "id": "tag-phase8"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2026-02-21T00:00:00.000Z",
+  "versionId": "1"
+}

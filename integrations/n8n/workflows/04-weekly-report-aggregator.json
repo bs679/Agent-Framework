@@ -1,0 +1,225 @@
+{
+  "name": "Weekly Report Aggregator",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 16 * * 5"
+            }
+          ]
+        }
+      },
+      "id": "wra-trigger",
+      "name": "Friday 4:00 PM Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $credentials.pulseApiBaseUrl }}/api/v1/reports/week",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "wra-fetch",
+      "name": "Fetch Weekly Check-ins",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "pulse-api-token",
+          "name": "Pulse API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst checkins = data.checkins || data.data || data.reports || [];\n\n// Build a structured text summary for Ollama\nlet summaryText = '';\nfor (const checkin of checkins) {\n  const name = checkin.agent_name || checkin.staff_name || 'Unknown';\n  const entries = checkin.entries || checkin.items || [];\n  summaryText += `\\n${name}:\\n`;\n  for (const entry of entries) {\n    summaryText += `  - ${entry.date || ''}: ${entry.summary || entry.text || JSON.stringify(entry)}\\n`;\n  }\n}\n\nif (!summaryText.trim()) {\n  summaryText = JSON.stringify(data, null, 2).substring(0, 3000);\n}\n\nreturn [{ json: { prompt_text: summaryText, raw_data: data } }];"
+      },
+      "id": "wra-prepare",
+      "name": "Prepare Report Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:11434/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'llama3.1:8b', prompt: 'Summarize this week\\'s staff activity for a union president. Highlight anything needing attention. Keep it under 200 words. Be direct.\\n\\nStaff check-ins:\\n' + $json.prompt_text, stream: false }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "wra-ollama",
+      "name": "Ollama Summarize Week",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $credentials.pulseApiBaseUrl }}/api/v1/reports",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ type: 'weekly_summary', status: 'draft', summary: $json.response, generated_at: $now.toISO(), review_required: true, assigned_to: 'dave' }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "wra-post-report",
+      "name": "POST Draft Report to Pulse",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "pulse-api-token",
+          "name": "Pulse API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $credentials.pulseApiBaseUrl }}/api/v1/agents/checkin",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ type: 'weekly_report_ready', message: 'Weekly summary report is ready for your review. ' + ($('Ollama Summarize Week').first().json.response || '').substring(0, 100) + '...', assigned_to: 'dave', report_id: $json.id || $json.report_id || 'latest' }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "wra-notify",
+      "name": "Notify Dave Summary Ready",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1320, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "pulse-api-token",
+          "name": "Pulse API Token"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "wra-done",
+      "name": "Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1540, 300]
+    }
+  ],
+  "connections": {
+    "Friday 4:00 PM Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Weekly Check-ins",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Weekly Check-ins": {
+      "main": [
+        [
+          {
+            "node": "Prepare Report Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Report Data": {
+      "main": [
+        [
+          {
+            "node": "Ollama Summarize Week",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Summarize Week": {
+      "main": [
+        [
+          {
+            "node": "POST Draft Report to Pulse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST Draft Report to Pulse": {
+      "main": [
+        [
+          {
+            "node": "Notify Dave Summary Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Dave Summary Ready": {
+      "main": [
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "pulse",
+      "id": "tag-pulse"
+    },
+    {
+      "name": "weekly",
+      "id": "tag-weekly"
+    },
+    {
+      "name": "ollama",
+      "id": "tag-ollama"
+    },
+    {
+      "name": "phase-8",
+      "id": "tag-phase8"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2026-02-21T00:00:00.000Z",
+  "versionId": "1"
+}
