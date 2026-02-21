@@ -1,0 +1,161 @@
+{
+  "name": "New Member Orientation Trigger",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "new-member-orientation",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "new-member-orientation"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate webhook payload and build orientation checklist\nconst body = $input.first().json.body || $input.first().json;\n\nconst requiredFields = ['member_name', 'facility', 'bargaining_unit', 'hire_date'];\nconst missing = requiredFields.filter(f => !body[f]);\n\nif (missing.length > 0) {\n  throw new Error(`Missing required fields: ${missing.join(', ')}`);\n}\n\n// Predefined orientation checklist\nconst checklistItems = [\n  {\n    title: `Welcome packet: Prepare and send welcome materials for ${body.member_name}`,\n    priority: 'high',\n    due_offset_days: 1\n  },\n  {\n    title: `Union orientation meeting: Schedule for ${body.member_name} at ${body.facility}`,\n    priority: 'high',\n    due_offset_days: 3\n  },\n  {\n    title: `Contract copy: Provide ${body.bargaining_unit} contract to ${body.member_name}`,\n    priority: 'high',\n    due_offset_days: 3\n  },\n  {\n    title: `Steward introduction: Connect ${body.member_name} with ${body.facility} steward`,\n    priority: 'medium',\n    due_offset_days: 5\n  },\n  {\n    title: `Benefits overview: Review health, pension, and other benefits with ${body.member_name}`,\n    priority: 'medium',\n    due_offset_days: 7\n  },\n  {\n    title: `Dues authorization: Collect signed dues authorization card from ${body.member_name}`,\n    priority: 'high',\n    due_offset_days: 7\n  },\n  {\n    title: `Grievance rights: Explain grievance process and Weingarten rights to ${body.member_name}`,\n    priority: 'medium',\n    due_offset_days: 10\n  },\n  {\n    title: `Committee opportunities: Discuss available committee roles with ${body.member_name}`,\n    priority: 'low',\n    due_offset_days: 14\n  }\n];\n\nconst hireDate = new Date(body.hire_date);\nconst tasks = checklistItems.map(item => {\n  const dueDate = new Date(hireDate);\n  dueDate.setDate(dueDate.getDate() + item.due_offset_days);\n  return {\n    json: {\n      title: item.title,\n      priority: item.priority,\n      due_date: dueDate.toISOString().split('T')[0],\n      assigned_to: 'execsec',\n      tag: 'orientation',\n      member_name: body.member_name,\n      facility: body.facility,\n      bargaining_unit: body.bargaining_unit,\n      hire_date: body.hire_date\n    }\n  };\n});\n\nreturn tasks;"
+      },
+      "id": "build-checklist",
+      "name": "Build Orientation Checklist",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [300, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $credentials.pulseApiBaseUrl }}/api/v1/tasks",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"title\": {{ JSON.stringify($json.title) }},\n  \"priority\": {{ JSON.stringify($json.priority) }},\n  \"due_date\": {{ JSON.stringify($json.due_date) }},\n  \"assigned_to\": \"execsec\",\n  \"tag\": \"orientation\",\n  \"metadata\": {\n    \"member_name\": {{ JSON.stringify($json.member_name) }},\n    \"facility\": {{ JSON.stringify($json.facility) }},\n    \"bargaining_unit\": {{ JSON.stringify($json.bargaining_unit) }},\n    \"hire_date\": {{ JSON.stringify($json.hire_date) }}\n  }\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "create-tasks",
+      "name": "Create Orientation Tasks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [600, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "pulse-api-token",
+          "name": "Pulse API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// After all tasks are created, schedule the 30-day check-in for Dave\nconst firstItem = $input.first().json;\nconst memberName = $('Build Orientation Checklist').first().json.member_name;\nconst facility = $('Build Orientation Checklist').first().json.facility;\nconst hireDate = $('Build Orientation Checklist').first().json.hire_date;\n\nconst checkInDate = new Date(hireDate);\ncheckInDate.setDate(checkInDate.getDate() + 30);\n\nreturn [{\n  json: {\n    title: `30-day new member check-in: ${memberName} at ${facility}`,\n    priority: 'medium',\n    due_date: checkInDate.toISOString().split('T')[0],\n    assigned_to: 'dave',\n    tag: 'orientation',\n    member_name: memberName,\n    facility: facility,\n    hire_date: hireDate\n  }\n}];"
+      },
+      "id": "build-checkin",
+      "name": "Build 30-Day Check-in",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $credentials.pulseApiBaseUrl }}/api/v1/tasks",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"title\": {{ JSON.stringify($json.title) }},\n  \"priority\": {{ JSON.stringify($json.priority) }},\n  \"due_date\": {{ JSON.stringify($json.due_date) }},\n  \"assigned_to\": \"dave\",\n  \"tag\": \"orientation\",\n  \"metadata\": {\n    \"member_name\": {{ JSON.stringify($json.member_name) }},\n    \"facility\": {{ JSON.stringify($json.facility) }},\n    \"type\": \"30_day_checkin\",\n    \"hire_date\": {{ JSON.stringify($json.hire_date) }}\n  }\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "create-checkin",
+      "name": "Schedule 30-Day Check-in",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "pulse-api-token",
+          "name": "Pulse API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, message: 'Orientation tasks created', member_name: $('Build Orientation Checklist').first().json.member_name, tasks_created: $('Build Orientation Checklist').all().length + 1, checkin_date: $json.due_date }) }}",
+        "options": {}
+      },
+      "id": "respond-webhook",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1350, 0]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          { "node": "Build Orientation Checklist", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Build Orientation Checklist": {
+      "main": [
+        [
+          { "node": "Create Orientation Tasks", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Create Orientation Tasks": {
+      "main": [
+        [
+          { "node": "Build 30-Day Check-in", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Build 30-Day Check-in": {
+      "main": [
+        [
+          { "node": "Schedule 30-Day Check-in", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Schedule 30-Day Check-in": {
+      "main": [
+        [
+          { "node": "Respond to Webhook", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "webhook", "id": "tag-webhook" },
+    { "name": "orientation", "id": "tag-orientation" },
+    { "name": "phase-8", "id": "tag-phase-8" }
+  ],
+  "triggerCount": 1,
+  "active": false,
+  "pinData": {},
+  "versionId": "1"
+}
