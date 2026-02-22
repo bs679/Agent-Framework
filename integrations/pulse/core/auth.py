@@ -20,9 +20,10 @@ Role resolution
 ``get_current_user_with_role`` extends the base token payload with ``role``
 and ``role_detail`` by looking up the user's entry in ``user_profiles``.
 
-If no profile exists the user defaults to STAFF / staff.  The profile is
-lazily created on the first call so all authenticated users always have
-a profile record.
+If no profile exists, it is lazily created. In a fresh deployment with no
+ADMIN users yet, the first authenticated user is bootstrapped to
+ADMIN / president so admin APIs are reachable. All subsequent new users
+default to STAFF / staff.
 """
 
 from __future__ import annotations
@@ -171,8 +172,9 @@ async def get_current_user_with_role(
     """FastAPI dependency — token claims enriched with role + role_detail.
 
     Looks up the ``user_profiles`` table for the authenticated user.  If no
-    profile exists, one is created with defaults (STAFF / staff) so that
-    every authenticated user always has a valid profile.
+    profile exists, one is created lazily:
+      * first user in a deployment (no ADMIN exists): ADMIN / president
+      * otherwise: STAFF / staff
 
     Returns the token payload dict augmented with:
         "user_id"    — preferred_username or oid
@@ -194,18 +196,32 @@ async def get_current_user_with_role(
     )
 
     if profile is None:
-        # Lazy-create a default STAFF profile for new users
+        has_admin = (
+            db.query(UserProfile)
+            .filter(UserProfile.role == "ADMIN")
+            .first()
+            is not None
+        )
+        role = "STAFF" if has_admin else "ADMIN"
+        role_detail = "staff" if has_admin else "president"
+
+        # Lazy-create profile for new users, with one-time ADMIN bootstrap.
         profile = UserProfile(
             azure_user_id=user_id,
-            role="STAFF",
-            role_detail="staff",
+            role=role,
+            role_detail=role_detail,
             display_name=payload.get("name"),
             email=payload.get("preferred_username"),
         )
         db.add(profile)
         db.commit()
         db.refresh(profile)
-        logger.info("Created default STAFF profile for user %s", user_id)
+        logger.info(
+            "Created default %s/%s profile for user %s",
+            profile.role,
+            profile.role_detail,
+            user_id,
+        )
 
     payload["role"] = profile.role
     payload["role_detail"] = profile.role_detail
