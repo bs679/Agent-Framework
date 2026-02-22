@@ -1,1 +1,1 @@
-# Database package for Pulse agent-plane persistence layer.
+"""Database layer for Pulse — Phase 9b officer modules."""

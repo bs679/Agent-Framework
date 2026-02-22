@@ -1,4 +1,4 @@
-"""Alembic environment — connects migrations to the Pulse SQLAlchemy models.
+"""Alembic environment — wires SQLAlchemy models to migration engine.
 
 Run from the repo root:
     alembic -c integrations/pulse/alembic.ini upgrade head
@@ -8,15 +8,17 @@ from __future__ import annotations
 
 import os
 from logging.config import fileConfig
+from pathlib import Path
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 # ---------------------------------------------------------------------------
-# Import all models so Alembic can detect schema changes
+# Import all models so their metadata is registered with Base.metadata
 # ---------------------------------------------------------------------------
-import integrations.pulse.db.models  # noqa: F401  — registers models on Base
-from integrations.pulse.db.session import Base, DATABASE_URL
+from integrations.pulse.db.base import Base
+from integrations.pulse.db.models import finance, minutes  # noqa: F401
+import integrations.pulse.db.models  # noqa: F401  — registers all models on Base
 
 # ---------------------------------------------------------------------------
 # Alembic Config object
@@ -26,8 +28,15 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Override the sqlalchemy.url from the environment at runtime
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+# Override sqlalchemy.url from DATABASE_URL env var if provided
+_db_url = os.environ.get("DATABASE_URL")
+if _db_url:
+    config.set_main_option("sqlalchemy.url", _db_url)
+else:
+    # Ensure the data/ directory exists for SQLite
+    default_path = Path(__file__).resolve().parents[4] / "data" / "pulse.db"
+    default_path.parent.mkdir(parents=True, exist_ok=True)
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{default_path}")
 
 target_metadata = Base.metadata
 
@@ -51,7 +60,7 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations against a live DB connection."""
+    """Run migrations with a live DB connection."""
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

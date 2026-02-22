@@ -32,6 +32,10 @@ from integrations.pulse.api.v1.compliance import router as compliance_router
 from integrations.pulse.api.v1.grievances import router as grievances_router
 from integrations.pulse.api.v1.legislative import router as legislative_router
 from integrations.pulse.api.v1.research import router as research_router
+# Phase 9b — Secretary/Treasurer + Executive Secretary Officer Modules
+from integrations.pulse.api.v1.finance import router as finance_router
+from integrations.pulse.api.v1.minutes_api import router as minutes_router
+from integrations.pulse.api.v1.scheduling import router as scheduling_router
 from integrations.pulse.core.config import get_settings
 from integrations.pulse.core.database import init_db
 from integrations.pulse.core.scheduler import create_scheduler
@@ -99,6 +103,11 @@ app.include_router(grievances_router)
 app.include_router(research_router)
 app.include_router(legislative_router)
 app.include_router(board_router)
+
+# Phase 9b — Officer module routers (always mounted regardless of agent_plane flag)
+app.include_router(finance_router)
+app.include_router(minutes_router)
+app.include_router(scheduling_router)
 
 
 @app.get("/health")
