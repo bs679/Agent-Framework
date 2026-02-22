@@ -2,8 +2,9 @@
 """Load and validate agent configuration files at container startup.
 
 Reads all 6 markdown config files from /app/config/, parses their YAML
-frontmatter and markdown body, and injects them into OpenClaw's system
-prompt context via the OPENCLAW_SYSTEM_PROMPT environment variable.
+frontmatter and markdown body, validates frontmatter against the Pydantic
+schema models, and injects the combined context into OpenClaw via the
+OPENCLAW_SYSTEM_PROMPT environment variable.
 
 File contents are never logged — only filenames and load status.
 """
@@ -12,6 +13,8 @@ import os
 import sys
 import logging
 
+import yaml
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -19,14 +22,30 @@ logging.basicConfig(
 logger = logging.getLogger("load_config")
 
 CONFIG_DIR = "/app/config"
-REQUIRED_FILES = [
-    "SOUL.md",
-    "USER.md",
-    "IDENTITY.md",
-    "AGENTS.md",
-    "HEARTBEAT.md",
-    "MEMORY.md",
-]
+
+# Map from filename to the Pydantic model that validates its frontmatter.
+# Imported lazily to avoid pulling the full provisioning package at import time
+# if it isn't installed inside the container.
+_SCHEMA_MAP: dict[str, str] = {
+    "SOUL.md": "SoulConfig",
+    "USER.md": "UserConfig",
+    "IDENTITY.md": "IdentityConfig",
+    "AGENTS.md": "AgentsConfig",
+    "HEARTBEAT.md": "HeartbeatConfig",
+    "MEMORY.md": "MemoryConfig",
+}
+
+REQUIRED_FILES = list(_SCHEMA_MAP.keys())
+
+
+def _get_validator(model_name: str):
+    """Return the Pydantic model class or None if provisioning pkg unavailable."""
+    try:
+        import importlib
+        mod = importlib.import_module("provisioning.cli.types")
+        return getattr(mod, model_name, None)
+    except ImportError:
+        return None
 
 
 def parse_frontmatter(content: str) -> tuple[dict, str]:
@@ -35,9 +54,6 @@ def parse_frontmatter(content: str) -> tuple[dict, str]:
     Returns (frontmatter_dict, body_str). If no frontmatter is present,
     returns (empty dict, full content).
     """
-    # Lazy import — only needed at startup
-    import yaml
-
     if not content.startswith("---"):
         return {}, content.strip()
 
@@ -57,20 +73,59 @@ def parse_frontmatter(content: str) -> tuple[dict, str]:
     return frontmatter, body
 
 
-def load_configs() -> str:
-    """Load all required config files and build the system prompt context.
+def validate_frontmatter(filename: str, frontmatter: dict, agent_id: str) -> bool:
+    """Validate frontmatter against the registered Pydantic model.
 
-    Returns the combined system prompt string. Exits with error if any
-    required file is missing.
+    Returns True if valid (or if schema unavailable). Logs errors and
+    returns False on validation failure — caller decides whether to abort.
+    """
+    model_name = _SCHEMA_MAP.get(filename)
+    if not model_name:
+        return True
+
+    validator = _get_validator(model_name)
+    if validator is None:
+        logger.debug(
+            "Schema validation skipped for %s — provisioning package not installed",
+            filename,
+        )
+        return True
+
+    try:
+        validator.model_validate(frontmatter)
+        logger.info("Schema valid: %s (agent=%s)", filename, agent_id)
+        return True
+    except Exception as exc:  # pydantic.ValidationError
+        # Log field-level errors without logging values (values may be sensitive)
+        field_errors = []
+        if hasattr(exc, "errors"):
+            field_errors = [
+                f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}"
+                for e in exc.errors()
+            ]
+        logger.error(
+            "Schema validation failed for %s (agent=%s): %s",
+            filename,
+            agent_id,
+            "; ".join(field_errors) or str(exc),
+        )
+        return False
+
+
+def load_configs() -> str:
+    """Load and validate all required config files, build the system prompt.
+
+    Returns the combined system prompt string. Exits with code 1 if any
+    required file is missing or fails schema validation.
     """
     agent_id = os.environ.get("AGENT_ID", "unknown")
-    missing = []
+    errors: list[str] = []
     prompt_sections = []
 
     for filename in REQUIRED_FILES:
         filepath = os.path.join(CONFIG_DIR, filename)
         if not os.path.isfile(filepath):
-            missing.append(filename)
+            errors.append(f"{filename}: file missing")
             logger.error("Required config file missing: %s", filename)
             continue
 
@@ -79,18 +134,21 @@ def load_configs() -> str:
 
         frontmatter, body = parse_frontmatter(content)
 
-        # Build a section header from the filename
+        if not validate_frontmatter(filename, frontmatter, agent_id):
+            errors.append(f"{filename}: schema validation failed")
+            # Continue loading other files so all errors are surfaced at once
+
         section_name = filename.replace(".md", "")
         prompt_sections.append(f"## {section_name}\n\n{body}")
 
         logger.info("Loaded config: %s (agent=%s)", filename, agent_id)
 
-    if missing:
+    if errors:
         logger.error(
-            "Agent %s is missing %d required config file(s): %s",
+            "Agent %s failed to load: %d error(s): %s",
             agent_id,
-            len(missing),
-            ", ".join(missing),
+            len(errors),
+            "; ".join(errors),
         )
         sys.exit(1)
 

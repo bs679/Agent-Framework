@@ -1,126 +1,105 @@
 # Project Review & Improvement Plan
 
-## Quick Assessment
-
-The repository currently contains a detailed product/architecture memory document (`Claude.md`) but no implementation scaffold yet.
-
-This is a strong starting point for vision alignment, but there are immediate gaps that will block execution if not addressed:
-
-1. No runnable code skeleton for backend, frontend, provisioning, or integrations.
-2. No defined schema for the onboarding output that produces the 6 configuration files.
-3. No acceptance criteria per phase (so "done" is ambiguous).
-4. No security baseline artifacts (threat model, secrets policy, tenancy test plan).
-5. No CI workflow to enforce quality gates as development starts.
-
-## Recommended Improvements (Prioritized)
-
-## P0 — Start Building Infrastructure for Delivery
-
-### 1) Add a minimal monorepo scaffold now
-Create the documented top-level folders and placeholder modules so work can proceed in parallel:
-- `onboarding/` (React)
-- `provisioning/cli/` (Python)
-- `admin/` (dashboard)
-- `integrations/` (n8n, pulse, msgraph)
-- `agents/` (generated agent output)
-
-**Why:** Enables immediate task decomposition and reduces setup friction.
-
-### 2) Define a canonical onboarding schema (`v1`)
-Create a single source of truth for onboarding input and generated artifacts.
-- Suggested file: `schemas/onboarding.v1.json`
-- Include validation constraints and required/optional fields.
-- Add a version field so future migrations are explicit.
-
-**Why:** Prevents drift between UI form, generators, and provisioning CLI.
-
-### 3) Write deterministic generators with snapshot tests
-For each generated file (`SOUL`, `USER`, `IDENTITY`, `AGENTS`, `HEARTBEAT`, `MEMORY`):
-- Build pure generation functions.
-- Add snapshot fixtures using representative staff profiles.
-- Enforce idempotent output.
-
-**Why:** Configuration generation is core product logic and should be test-first.
-
-### 4) Establish CI before feature work expands
-At minimum:
-- Lint + typecheck + unit tests.
-- Conventional PR checks.
-- Markdown linting for config templates.
-
-**Why:** Quality gates are cheapest to introduce early.
-
-## P1 — Reduce Risk in Multi-Tenant + Security Model
-
-### 5) Add a concrete tenant isolation test matrix
-Document and automate checks for:
-- Cross-agent file access denial.
-- Secrets boundary validation.
-- Resource quota isolation.
-- Log redaction behavior.
-
-**Why:** Multi-tenant isolation is the system's highest-stakes technical promise.
-
-### 6) Produce a threat model and control map
-Create `docs/security/threat-model.md` with:
-- Assets, trust boundaries, attack vectors.
-- STRIDE-style threat table.
-- Controls and validation approach.
-
-**Why:** Security requirements in `Claude.md` are strong but currently non-operational.
-
-### 7) Define memory lifecycle policy and retention controls
-Document:
-- What is retained, encrypted, summarized, or purged.
-- Per-role retention exceptions.
-- Human override and audit path.
-
-**Why:** The "forget safely" principle needs enforceable lifecycle rules.
-
-## P2 — Improve Product Operability
-
-### 8) Add phase-level Definition of Done (DoD)
-For each phase in `Claude.md`, include:
-- Deliverables.
-- Tests required.
-- Demo scenario.
-- Exit criteria.
-
-**Why:** Turns roadmap from intent into executable milestones.
-
-### 9) Add observability baseline from day one
-Define minimal telemetry:
-- Agent provisioning success rate.
-- Config generation latency/error rate.
-- Runtime health and heartbeat compliance.
-
-**Why:** Operational visibility should not be postponed to production hardening.
-
-### 10) Add architecture decision records (ADRs)
-Start with:
-- Why OpenClaw + orchestration layer approach.
-- Why Ollama primary / Claude fallback.
-- Why per-agent Docker isolation.
-
-**Why:** Preserves rationale and reduces future design churn.
-
-## Suggested 2-Week Execution Sequence
-
-1. **Days 1-2:** Scaffold repo + CI + coding standards.
-2. **Days 3-4:** Finalize onboarding schema `v1` + validation.
-3. **Days 5-7:** Implement 6 config generators + snapshot tests.
-4. **Days 8-9:** Build provisioning CLI skeleton (`aios agents create/list/validate`).
-5. **Days 10-11:** Add isolation test matrix + local compose proof.
-6. **Days 12-14:** Admin read-only status panel for provisioning + agent health.
-
-## Immediate Next Actions
-
-- [ ] Create `README.md` with setup and first-run instructions.
-- [ ] Add `schemas/onboarding.v1.json` with 23-question mapping.
-- [ ] Create `provisioning/cli/agents.py` with `validate-onboarding` command.
-- [ ] Add `tests/generators/` with fixtures for all three role classes (President, SecTreas, ExecSec + standard staff).
-- [ ] Add `.github/workflows/ci.yml` for lint/test checks.
+_Updated February 2026 — reflects current implementation state across Phases 1–8._
 
 ---
 
-If implemented in this order, the project can move from planning to a verifiable Phase 1-4 prototype quickly while preserving the privacy-first and multi-tenant guarantees.
+## Current Implementation Status
+
+Phases 1–8 are implemented. The following components exist and are functional:
+
+| Phase | Component | Status | Key gaps |
+|-------|-----------|--------|----------|
+| 1 | Repo scaffold, JSON schema, Pydantic models | ✅ Done | — |
+| 2 | Staff onboarding React webapp (23 questions) | ✅ Done | Missing section progress persistence |
+| 3 | Config generators (6 files per agent) | ✅ Done | No golden-file snapshot tests yet |
+| 4 | `aios` CLI (planes + agents) | ✅ Done | `status` shows registry only, not live Docker state |
+| 5 | Docker isolation, per-agent containers | ✅ Done | Dockerfile now runs non-root; schema validation at startup added |
+| 6 | Admin dashboard | 🔲 Not started | — |
+| 7 | Pulse ↔ agent-plane integration | ✅ Done | JWT now has explicit dev-mode guard; production JWKS path implemented |
+| 7b | Central AI router | ✅ Done | Model updated to claude-sonnet-4-6; timing telemetry added |
+| 8 | n8n workflow automation | ✅ Done | Webhook auth added; global error handler workflow added |
+| 9 | Officer-specific modules | 🔲 Not started | — |
+| 10 | Production hardening | 🔲 Not started | — |
+
+---
+
+## Remaining Gaps — Prioritized
+
+### P0 — Must fix before first production agent (Dave)
+
+**1. Add golden-file snapshot tests for all 6 generators**
+For each of `generateSOUL`, `generateUSER`, `generateIDENTITY`, `generateAGENTS`,
+`generateHEARTBEAT`, `generateMEMORY`: create a fixture representing Dave's
+onboarding responses, run the generator, and snapshot the output.
+- Prevents silent template regressions
+- Evidence: unit tests exist but no snapshot fixtures yet
+
+**2. Harden `aios planes status` to show live Docker state**
+Currently shows registry metadata only. Add `docker inspect` calls to report
+real container state (running/stopped/missing) alongside registry data.
+
+**3. Validate production JWT auth end-to-end**
+`PULSE_DEV_MODE=true` is now explicit and logged with a warning; production JWKS
+path is implemented. Before going live: unset `PULSE_DEV_MODE` in production `.env`
+and validate token verification against the CHCA Azure AD tenant.
+
+**4. Configure n8n Error Workflow**
+Import `integrations/n8n/workflows/00-error-handler.json` and set it as the
+global Error Workflow in n8n Settings → Workflows → Error Workflow. Then set
+retry counts (3 retries, 60 s wait) on all schedule-triggered workflows (01–04).
+
+### P1 — Must fix before rolling out to SecTreas + ExecSec
+
+**5. Add role-specific snapshot fixtures**
+SecTreas and ExecSec responses exercise different generator code paths. Add
+fixtures for each role class (President, SecTreas/ExecSec, standard staff).
+
+**6. Build admin dashboard (Phase 6)**
+Minimum viable: list agents with Docker status + last heartbeat time. Without
+this, failures are invisible during multi-agent rollout.
+
+**7. Implement `aios agents upgrade` command**
+Rolling upgrade: pull latest image → stop container → start with new image →
+verify health → proceed to next agent. Required before any image update.
+
+**8. Add CI pipeline**
+No CI workflow exists. Add `.github/workflows/ci.yml` running:
+- `pytest` for Python provisioning code and Pydantic models
+- `vitest` for the onboarding generators
+- `ruff` for Python linting
+
+### P2 — Before production hardening (Phase 10)
+
+**9. Implement memory backup cron**
+Daily backup of `agents/*/memory/` volumes to a local encrypted archive.
+`aios planes backup` command + cron schedule.
+
+**10. Add observability baseline**
+- Agent provisioning success/failure rate (CLI exit codes logged to structured file)
+- Config generation latency (instrument generators for regression detection)
+- n8n workflow success rate (available via n8n API, surface in admin dashboard)
+
+**11. Architecture Decision Records (ADRs)**
+- `docs/adr/001-docker-over-gcp-vms.md` — local Docker vs GCP VM-per-agent
+- `docs/adr/002-ollama-primary-claude-fallback.md` — AI routing rationale
+- `docs/adr/003-agents-plane-pattern.md` — why Agents Plane vs shared agent
+
+---
+
+## Immediate Next Actions (this week)
+
+- [ ] Add snapshot fixtures to `onboarding/src/generators/__tests__/` for all 3 role classes
+- [ ] Configure n8n error handler workflow and retry settings
+- [ ] Unset `PULSE_DEV_MODE` in production `.env` and test JWKS verification end-to-end
+- [ ] Begin Phase 6 admin dashboard — critical dependency for multi-agent rollout
+- [ ] Add `.github/workflows/ci.yml`
+
+---
+
+## Execution Sequence (next 4 weeks)
+
+1. **Week 1:** Snapshot tests + CI + n8n error handler configured
+2. **Week 2:** Admin dashboard Phase 6 MVP (agent list + Docker status + heartbeat)
+3. **Week 3:** `aios agents upgrade` + memory backup + production JWT validated
+4. **Week 4:** Phase 9 officer modules for SecTreas + ExecSec, then P1 rollout

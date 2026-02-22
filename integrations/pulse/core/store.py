@@ -3,24 +3,42 @@
 In production this would be backed by the Pulse database.  For now we
 keep today's check-ins in memory, which is sufficient for the API
 contract and sidebar display.
+
+TTL / stale-entry cleanup
+--------------------------
+Entries older than RETENTION_DAYS are pruned on each write to prevent
+the store growing unboundedly across day boundaries during long-running
+processes.  The default retention is 2 days (today + yesterday) so that
+dashboards loaded just after midnight can still show yesterday's summary.
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
+
+RETENTION_DAYS: int = 2
 
 
 class CheckinStore:
     """Thread-safe (single-process) store for daily agent check-ins."""
 
-    def __init__(self) -> None:
+    def __init__(self, retention_days: int = RETENTION_DAYS) -> None:
         # key: (owner_id, date_str) → list of checkin dicts
         self._checkins: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        self._retention_days = retention_days
+
+    def _purge_stale(self) -> None:
+        """Remove entries older than retention_days. Called on every write."""
+        cutoff = (date.today() - timedelta(days=self._retention_days)).isoformat()
+        stale = [key for key in self._checkins if key[1] < cutoff]
+        for key in stale:
+            del self._checkins[key]
 
     def save(self, owner_id: str, checkin: dict[str, Any]) -> str:
         """Persist a check-in and return a generated checkin_id."""
+        self._purge_stale()
         checkin_id = uuid.uuid4().hex[:12]
         today = date.today().isoformat()
         key = (owner_id, today)

@@ -27,6 +27,7 @@ Set these in your n8n instance (Settings → Environment Variables, or via `N8N_
 | `PULSE_API_BASE_URL` | `http://localhost:8000` | Pulse app base URL |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API base URL |
 | `MS_TEAMS_WEBHOOK_URL` | `https://outlook.office.com/webhook/...` | Teams incoming webhook |
+| `N8N_WEBHOOK_SECRET` | `$(openssl rand -hex 32)` | Shared secret callers must send as `X-Webhook-Secret` header |
 
 ### 3. Set up credentials in n8n
 
@@ -170,6 +171,37 @@ curl -X POST http://localhost:5678/webhook/new-member-orientation \
 | Ollama Base URL | environment variable | 03, 04, 05 |
 | MS Teams Webhook URL | environment variable | 02 |
 
+## Error Handling & Retry Strategy
+
+### Global Error Handler (workflow 00)
+
+Import `00-error-handler.json` first, then go to **Settings → Workflows → Error Workflow** and select it.
+All other workflows will route unhandled errors here. The handler creates a high-priority Pulse task
+visible in the Dave agent sidebar — no sensitive execution data is included in the task.
+
+### Retry configuration (schedule-triggered workflows)
+
+In the n8n UI, for each schedule-triggered workflow (01–04):
+1. Open the workflow → Settings (gear icon)
+2. Set **Retry on Fail** → `3`
+3. Set **Retry Wait Time** → `60` seconds
+
+This gives failed API calls three chances before the error handler fires.
+
+### Webhook authentication (workflows 05, 06)
+
+Callers must include the header:
+```
+X-Webhook-Secret: <value of N8N_WEBHOOK_SECRET env var>
+```
+Requests without a valid secret return a thrown error and are not processed.
+Generate the secret with: `openssl rand -hex 32`
+
+### Dead-letter audit
+
+Errors create Pulse tasks tagged `n8n-error`. Review these weekly and clear resolved ones.
+The metadata field on each task contains: `workflow_name`, `execution_id`, `error_message`, `timestamp`.
+
 ## File Structure
 
 ```
@@ -177,10 +209,11 @@ integrations/n8n/
 ├── README.md                          ← This file
 ├── credentials-template.json          ← Credential structure (no values)
 └── workflows/
+    ├── 00-error-handler.json          ← Global dead-letter handler (import first)
     ├── 01-daily-context-builder.json
     ├── 02-grievance-deadline-monitor.json
     ├── 03-legislative-calendar-tracker.json
     ├── 04-weekly-report-aggregator.json
-    ├── 05-email-thread-intelligence.json
-    └── 06-new-member-orientation.json
+    ├── 05-email-thread-intelligence.json  ← Requires X-Webhook-Secret header
+    └── 06-new-member-orientation.json     ← Requires X-Webhook-Secret header
 ```

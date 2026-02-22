@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/openclaw/openclaw/agent-config-schema",
-  "title": "Agent Config Schema",
-  "description": "Validates frontmatter blocks across all 6 agent configuration files",
+  "$id": "urn:chca-aios:agent-config-schema:v1",
+  "title": "Agent Config Schema v1",
+  "description": "Validates frontmatter blocks across all 6 agent configuration files. Bump the version suffix and add a migration note to agents/schema/CHANGELOG.md before making backward-incompatible changes.",
   "type": "object",
   "oneOf": [
     { "$ref": "#/$defs/SoulConfig" },

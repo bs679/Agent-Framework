@@ -42,10 +42,41 @@ const INITIAL_FORM = {
   neverDoThis: '',          // Q18
 };
 
+const DRAFT_KEY = 'chca-onboarding-draft';
+
+// Fields that generators require for well-formed output.
+const REQUIRED_FIELDS = [
+  { key: 'ownerName',          label: 'Your name (Q1)' },
+  { key: 'ownerRole',          label: 'Your role (Q2)' },
+  { key: 'pronouns',           label: 'Your pronouns (Q3)' },
+  { key: 'energyPattern',      label: 'Energy pattern (Q4)' },
+  { key: 'focusStyle',         label: 'Focus style (Q5)' },
+  { key: 'communicationStyle', label: 'Communication style (Q7)' },
+  { key: 'informationFormat',  label: 'Information format (Q8)' },
+  { key: 'badNewsApproach',    label: 'Bad-news approach (Q9)' },
+  { key: 'vibeSelection',      label: 'Agent vibe (Q11)' },
+];
+
+function validateForm(form) {
+  const missing = REQUIRED_FIELDS.filter(({ key }) => {
+    const v = form[key];
+    return !v || (typeof v === 'string' && !v.trim());
+  });
+  return missing.map(({ label }) => label);
+}
+
 export default function App() {
-  const [form, setForm] = useState(INITIAL_FORM);
+  const [form, setForm] = useState(() => {
+    try {
+      const saved = localStorage.getItem(DRAFT_KEY);
+      return saved ? { ...INITIAL_FORM, ...JSON.parse(saved) } : INITIAL_FORM;
+    } catch {
+      return INITIAL_FORM;
+    }
+  });
   const [generated, setGenerated] = useState(null);
   const [error, setError] = useState('');
+  const [draftSaved, setDraftSaved] = useState(false);
 
   function update(field) {
     return (e) => setForm((prev) => ({ ...prev, [field]: e.target.value }));
@@ -60,10 +91,28 @@ export default function App() {
     });
   }
 
+  function handleSaveDraft() {
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(form));
+      setDraftSaved(true);
+      setTimeout(() => setDraftSaved(false), 2000);
+    } catch {
+      // localStorage not available — silently ignore
+    }
+  }
+
+  function handleClearDraft() {
+    localStorage.removeItem(DRAFT_KEY);
+    setForm(INITIAL_FORM);
+    setGenerated(null);
+    setError('');
+  }
+
   async function handleGenerate() {
     setError('');
-    if (!form.ownerName.trim() || !form.ownerRole.trim()) {
-      setError('Name and role are required.');
+    const missing = validateForm(form);
+    if (missing.length > 0) {
+      setError(`Please complete the following required fields: ${missing.join(', ')}.`);
       return;
     }
 
@@ -230,9 +279,15 @@ export default function App() {
 
       {error && <p style={{ color: '#d97706' }}>{error}</p>}
 
-      <div style={{ marginTop: '1rem', display: 'flex', gap: '1rem' }}>
+      <div style={{ marginTop: '1rem', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
         <button onClick={handleGenerate}>Generate Config Files</button>
         {generated && <button onClick={handleDownload}>Download ZIP</button>}
+        <button onClick={handleSaveDraft} style={{ marginLeft: 'auto' }}>
+          {draftSaved ? 'Saved ✓' : 'Save Draft'}
+        </button>
+        <button onClick={handleClearDraft} style={{ color: '#888' }}>
+          Clear Draft
+        </button>
       </div>
 
       {generated && (

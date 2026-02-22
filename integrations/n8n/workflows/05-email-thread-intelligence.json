@@ -12,18 +12,24 @@
       "name": "Webhook Trigger",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "webhookId": "email-thread-intelligence"
     },
     {
       "parameters": {
-        "jsCode": "// Validate webhook payload\nconst body = $input.first().json.body || $input.first().json;\nconst requiredFields = ['email_id', 'subject', 'owner_agent'];\nconst missing = requiredFields.filter(f => !body[f]);\n\nif (missing.length > 0) {\n  throw new Error(`Missing required fields: ${missing.join(', ')}`);\n}\n\nreturn [{\n  json: {\n    email_id: body.email_id,\n    subject: body.subject,\n    thread_length: body.thread_length || 0,\n    sender: body.sender || 'unknown',\n    owner_agent: body.owner_agent\n  }\n}];"
+        "jsCode": "// Authenticate webhook caller via shared secret\nconst secret = $env.N8N_WEBHOOK_SECRET;\nconst provided = $input.first().json.headers?.['x-webhook-secret'] || '';\nif (secret && provided \\!== secret) {\n  throw new Error('Webhook authentication failed: invalid or missing X-Webhook-Secret header');\n}\\/\\/v1\n\n// Validate webhook payload\nconst body = $input.first().json.body || $input.first().json;\nconst requiredFields = ['email_id', 'subject', 'owner_agent'];\nconst missing = requiredFields.filter(f => !body[f]);\n\nif (missing.length > 0) {\n  throw new Error(`Missing required fields: ${missing.join(', ')}`);\n}\n\nreturn [{\n  json: {\n    email_id: body.email_id,\n    subject: body.subject,\n    thread_length: body.thread_length || 0,\n    sender: body.sender || 'unknown',\n    owner_agent: body.owner_agent\n  }\n}];"
       },
       "id": "validate-payload",
       "name": "Validate Payload",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [250, 0]
+      "position": [
+        250,
+        0
+      ]
     },
     {
       "parameters": {
@@ -43,7 +49,10 @@
       "name": "Fetch Email Thread",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [500, 0],
+      "position": [
+        500,
+        0
+      ],
       "credentials": {
         "httpHeaderAuth": {
           "id": "pulse-api-token",
@@ -53,13 +62,16 @@
     },
     {
       "parameters": {
-        "jsCode": "// Build the Ollama prompt from the email thread\n// IMPORTANT: email content goes to Ollama (local) ONLY — never to any external API\nconst thread = $input.first().json;\nconst emailId = $('Validate Payload').first().json.email_id;\nconst subject = $('Validate Payload').first().json.subject;\n\nconst threadText = Array.isArray(thread.messages)\n  ? thread.messages.map((m, i) => `Message ${i+1} (from: ${m.from || 'unknown'}, date: ${m.date || 'unknown'}):\\n${m.body || m.text || ''}`).join('\\n\\n---\\n\\n')\n  : JSON.stringify(thread);\n\nconst prompt = `Summarize this email thread. Key points? What action is needed? Keep response under 150 words.\\n\\nSubject: ${subject}\\n\\n${threadText}`;\n\nreturn [{\n  json: {\n    prompt: prompt,\n    email_id: emailId,\n    subject: subject,\n    owner_agent: $('Validate Payload').first().json.owner_agent\n  }\n}];"
+        "jsCode": "// Build the Ollama prompt from the email thread\n// IMPORTANT: email content goes to Ollama (local) ONLY \u2014 never to any external API\nconst thread = $input.first().json;\nconst emailId = $('Validate Payload').first().json.email_id;\nconst subject = $('Validate Payload').first().json.subject;\n\nconst threadText = Array.isArray(thread.messages)\n  ? thread.messages.map((m, i) => `Message ${i+1} (from: ${m.from || 'unknown'}, date: ${m.date || 'unknown'}):\\n${m.body || m.text || ''}`).join('\\n\\n---\\n\\n')\n  : JSON.stringify(thread);\n\nconst prompt = `Summarize this email thread. Key points? What action is needed? Keep response under 150 words.\\n\\nSubject: ${subject}\\n\\n${threadText}`;\n\nreturn [{\n  json: {\n    prompt: prompt,\n    email_id: emailId,\n    subject: subject,\n    owner_agent: $('Validate Payload').first().json.owner_agent\n  }\n}];"
       },
       "id": "build-prompt",
       "name": "Build Ollama Prompt",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [750, 0]
+      "position": [
+        750,
+        0
+      ]
     },
     {
       "parameters": {
@@ -81,7 +93,10 @@
       "name": "Ollama Summarize Thread",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1050, 0]
+      "position": [
+        1050,
+        0
+      ]
     },
     {
       "parameters": {
@@ -91,7 +106,10 @@
       "name": "Build Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1300, 0]
+      "position": [
+        1300,
+        0
+      ]
     },
     {
       "parameters": {
@@ -114,7 +132,10 @@
       "name": "POST Summary to Agent",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1550, 0],
+      "position": [
+        1550,
+        0
+      ],
       "credentials": {
         "httpHeaderAuth": {
           "id": "pulse-api-token",
@@ -132,56 +153,87 @@
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [1800, 0]
+      "position": [
+        1800,
+        0
+      ]
     }
   ],
   "connections": {
     "Webhook Trigger": {
       "main": [
         [
-          { "node": "Validate Payload", "type": "main", "index": 0 }
+          {
+            "node": "Validate Payload",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "Validate Payload": {
       "main": [
         [
-          { "node": "Fetch Email Thread", "type": "main", "index": 0 }
+          {
+            "node": "Fetch Email Thread",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "Fetch Email Thread": {
       "main": [
         [
-          { "node": "Build Ollama Prompt", "type": "main", "index": 0 }
+          {
+            "node": "Build Ollama Prompt",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "Build Ollama Prompt": {
       "main": [
         [
-          { "node": "Ollama Summarize Thread", "type": "main", "index": 0 }
+          {
+            "node": "Ollama Summarize Thread",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "Ollama Summarize Thread": {
       "main": [
         [
-          { "node": "Build Response", "type": "main", "index": 0 }
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "Build Response": {
       "main": [
         [
-          { "node": "POST Summary to Agent", "type": "main", "index": 0 }
+          {
+            "node": "POST Summary to Agent",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "POST Summary to Agent": {
       "main": [
         [
-          { "node": "Respond to Webhook", "type": "main", "index": 0 }
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     }
@@ -193,9 +245,18 @@
   },
   "staticData": null,
   "tags": [
-    { "name": "webhook", "id": "tag-webhook" },
-    { "name": "email", "id": "tag-email" },
-    { "name": "phase-8", "id": "tag-phase-8" }
+    {
+      "name": "webhook",
+      "id": "tag-webhook"
+    },
+    {
+      "name": "email",
+      "id": "tag-email"
+    },
+    {
+      "name": "phase-8",
+      "id": "tag-phase-8"
+    }
   ],
   "triggerCount": 1,
   "active": false,
