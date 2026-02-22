@@ -188,7 +188,7 @@ openclaw-aios/
 | 2 | Staff onboarding form (React webapp) | ✅ Complete |
 | 3 | Config file generators (6 files per agent) | 🔲 Not started |
 | 4 | Provisioning CLI (`aios planes` commands) | 🔲 Not started |
-| 5 | Docker isolation + per-agent containers | 🔲 Not started |
+| 5 | Docker isolation + per-agent containers | ✅ Complete |
 | 6 | Admin dashboard | 🔲 Not started |
 | 7 | Pulse app integration | 🔲 Not started |
 | 8 | n8n workflow hooks | 🔲 Not started |
