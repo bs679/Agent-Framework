@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 from integrations.pulse.core.store import checkin_store
 
 
+
+
 # ── GET /api/v1/agents/context ─────────────────────────────────────
 
 class TestContextEndpoint:
@@ -67,6 +69,18 @@ class TestContextEndpoint:
         assert "urgent_count" in email
 
 
+    def test_non_president_context_omits_officer_sections(self, client: TestClient) -> None:
+        def _staff_user() -> dict:
+            return {"user_id": "staff-1", "preferred_username": "staff-1", "roles": ["staff"]}
+
+        app.dependency_overrides[get_current_user] = _staff_user
+        data = client.get("/api/v1/agents/context").json()
+        assert data["grievances"] is None
+        assert data["board"] is None
+
+        app.dependency_overrides[get_current_user] = _mock_user
+
+
 # ── POST /api/v1/agents/checkin ────────────────────────────────────
 
 class TestCheckinEndpoint:
@@ -108,6 +122,31 @@ class TestCheckinEndpoint:
         body["checkin_type"] = "midnight"
         resp = admin_client.post("/api/v1/agents/checkin", json=body)
         assert resp.status_code == 422
+
+
+    def test_rejects_cross_agent_checkin_for_non_service_token(self, client: TestClient) -> None:
+        def _staff_user() -> dict:
+            return {"user_id": "staff-1", "preferred_username": "staff-1", "roles": ["staff"]}
+
+        app.dependency_overrides[get_current_user] = _staff_user
+        resp = client.post("/api/v1/agents/checkin", json=self._morning_checkin())
+        assert resp.status_code == 403
+
+        app.dependency_overrides[get_current_user] = _mock_user
+
+    def test_allows_scheduler_service_to_post_for_president(self, client: TestClient) -> None:
+        def _scheduler_user() -> dict:
+            return {
+                "user_id": "svc-scheduler",
+                "preferred_username": "svc-scheduler",
+                "roles": ["service", "scheduler"],
+            }
+
+        app.dependency_overrides[get_current_user] = _scheduler_user
+        resp = client.post("/api/v1/agents/checkin", json=self._morning_checkin())
+        assert resp.status_code == 200
+
+        app.dependency_overrides[get_current_user] = _mock_user
 
 
 # ── GET /api/v1/agents/checkin/status ──────────────────────────────

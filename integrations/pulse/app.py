@@ -16,25 +16,52 @@ Phase 9c additions
 
 from __future__ import annotations
 
+import logging
 import uuid
 from contextlib import asynccontextmanager
+from typing import AsyncIterator
 
 from fastapi import FastAPI, Request, Response
 
+from integrations.ai.router import AIRouter
 from integrations.pulse.api.v1.admin import router as admin_router
 from integrations.pulse.api.v1.agents import router as agents_router
+# Phase 9a — President Officer Modules
+from integrations.pulse.api.v1.board import router as board_router
 from integrations.pulse.api.v1.compliance import router as compliance_router
+from integrations.pulse.api.v1.grievances import router as grievances_router
+from integrations.pulse.api.v1.legislative import router as legislative_router
+from integrations.pulse.api.v1.research import router as research_router
 from integrations.pulse.core.config import get_settings
 from integrations.pulse.core.database import init_db
+from integrations.pulse.core.scheduler import create_scheduler
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Initialize the database (create tables + seed data) on startup."""
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Initialize the database and start background services on startup."""
+    # Phase 9c: Initialize database (create tables + seed compliance data)
     init_db()
-    yield
+
+    # Initialize AIRouter — stored on app.state so route handlers can reach it
+    ai_router = AIRouter()
+    app.state.ai_router = ai_router
+    health = await ai_router.health()
+    for model, mdl_status in health.items():
+        logger.info("[pulse] AI router — %s: %s", model, mdl_status)
+
+    # Start grievance deadline monitoring scheduler (Phase 9a)
+    scheduler = create_scheduler()
+    scheduler.start()
+    logger.info("[pulse] Grievance deadline scheduler started.")
+    try:
+        yield
+    finally:
+        scheduler.shutdown(wait=False)
+        logger.info("[pulse] Grievance deadline scheduler stopped.")
 
 
 app = FastAPI(
@@ -63,8 +90,15 @@ async def correlation_id_middleware(request: Request, call_next) -> Response:
 
 if settings.agent_plane_enabled:
     app.include_router(agents_router)
+    # Phase 9c — Compliance calendar and admin endpoints
     app.include_router(compliance_router)
     app.include_router(admin_router)
+
+# Phase 9a — President Officer Module endpoints (always mounted)
+app.include_router(grievances_router)
+app.include_router(research_router)
+app.include_router(legislative_router)
+app.include_router(board_router)
 
 
 @app.get("/health")
