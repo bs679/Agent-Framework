@@ -1,0 +1,88 @@
+# AIOS/Pulse — nginx reverse proxy configuration
+#
+# Deploy this file to /etc/nginx/sites-available/aios-pulse
+# then symlink: ln -s /etc/nginx/sites-available/aios-pulse /etc/nginx/sites-enabled/
+#
+# Two paths:
+#   A) Real domain with Let's Encrypt (production / remote access)
+#   B) Local self-signed cert (office LAN use)
+#
+# See docs/ssl-setup.md for full setup instructions.
+
+# ── HTTP → HTTPS redirect ────────────────────────────────────────────────────
+server {
+    listen 80;
+    listen [::]:80;
+    server_name pulse.local;
+
+    # Allow certbot ACME challenge through (path A only)
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# ── HTTPS ─────────────────────────────────────────────────────────────────────
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name pulse.local;
+
+    # ── Path A: Let's Encrypt (replace pulse.local with real domain) ──────────
+    # ssl_certificate     /etc/letsencrypt/live/pulse.local/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/pulse.local/privkey.pem;
+    # include             /etc/letsencrypt/options-ssl-nginx.conf;
+    # ssl_dhparam         /etc/letsencrypt/ssl-dhparams.pem;
+
+    # ── Path B: Self-signed cert (local LAN only) ─────────────────────────────
+    ssl_certificate     /etc/nginx/ssl/pulse.local.crt;
+    ssl_certificate_key /etc/nginx/ssl/pulse.local.key;
+
+    # Modern TLS settings
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    # Security headers (defence-in-depth — also set by FastAPI middleware)
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # Logging
+    access_log /var/log/nginx/pulse-access.log;
+    error_log  /var/log/nginx/pulse-error.log;
+
+    # ── Pulse API ──────────────────────────────────────────────────────────────
+    location / {
+        proxy_pass         http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   Upgrade           $http_upgrade;
+        proxy_set_header   Connection        "upgrade";
+
+        # Timeouts suitable for long-running AI requests
+        proxy_read_timeout  120s;
+        proxy_send_timeout  120s;
+
+        # Buffer settings for streaming responses
+        proxy_buffering    off;
+    }
+
+    # ── Health check bypass (monitoring — no auth) ─────────────────────────────
+    location /api/v1/health {
+        proxy_pass http://127.0.0.1:8000/api/v1/health;
+        proxy_set_header Host $host;
+        access_log off;
+    }
+}

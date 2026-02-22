@@ -3,14 +3,19 @@
 All endpoints live under ``/api/v1/agents/`` and require Azure AD JWT
 authentication.  They are additive — no existing Pulse endpoints are
 modified.
+
+Caching
+-------
+GET /context is cached in Redis for 5 minutes per user.
+Pass ``?cache_bust=true`` to force a fresh fetch.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from integrations.pulse.api.v1.schemas import (
     AgentContextResponse,
@@ -28,10 +33,18 @@ from integrations.pulse.api.v1.schemas import (
     TaskItem,
 )
 from integrations.pulse.core.auth import get_current_user
+from integrations.pulse.core.cache import (
+    build_cache_key,
+    get_cached,
+    set_cached,
+    invalidate,
+)
 from integrations.pulse.core.executive_guard import sanitize_event
 from integrations.pulse.core.store import checkin_store
 
 router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
+
+_CONTEXT_TTL = 300   # 5 minutes
 
 
 # ---------------------------------------------------------------------------
@@ -40,7 +53,6 @@ router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
 
 def _stub_calendar_events() -> list[dict[str, Any]]:
     """Return placeholder calendar events for development."""
-    now = datetime.utcnow()
     return [
         {
             "title": "Staff meeting",
@@ -67,7 +79,6 @@ def _stub_calendar_events() -> list[dict[str, Any]]:
 
 
 def _stub_upcoming_events() -> list[dict[str, Any]]:
-    """Placeholder upcoming events (next 48 h)."""
     return [
         {
             "title": "Budget review",
@@ -102,36 +113,35 @@ def _stub_email() -> dict[str, Any]:
 
 @router.get("/context", response_model=AgentContextResponse)
 async def get_agent_context(
+    cache_bust: bool = Query(False, alias="cache_bust"),
     user: dict[str, Any] = Depends(get_current_user),
 ) -> AgentContextResponse:
     """Return the daily context bundle for the authenticated user's agent.
+
+    Cached in Redis for 5 minutes per user.  Pass ``?cache_bust=true`` to
+    force a fresh fetch (used by the agent heartbeat to get current state).
 
     Calendar events that match executive-session keywords are sanitised
     automatically by the executive-session guard.
     """
     owner_id: str = user["user_id"]
+    cache_key = build_cache_key("agent_context", owner_id)
 
-    # Fetch raw events then sanitize each through the guard
-    today_raw = _stub_calendar_events()
-    upcoming_raw = _stub_upcoming_events()
+    if not cache_bust:
+        cached = await get_cached(cache_key)
+        if cached is not None:
+            return AgentContextResponse(**cached)
 
-    today_events = [
-        CalendarEvent(**sanitize_event(evt)) for evt in today_raw
-    ]
-    upcoming_events = [
-        CalendarEvent(**sanitize_event(evt)) for evt in upcoming_raw
-    ]
-
+    # Fetch raw events then sanitize
+    today_events = [CalendarEvent(**sanitize_event(e)) for e in _stub_calendar_events()]
+    upcoming_events = [CalendarEvent(**sanitize_event(e)) for e in _stub_upcoming_events()]
     task_data = _stub_tasks()
     email_data = _stub_email()
 
-    return AgentContextResponse(
+    response = AgentContextResponse(
         owner_id=owner_id,
         generated_at=datetime.utcnow().isoformat() + "Z",
-        calendar=CalendarContext(
-            today=today_events,
-            upcoming_48h=upcoming_events,
-        ),
+        calendar=CalendarContext(today=today_events, upcoming_48h=upcoming_events),
         tasks=TaskContext(
             overdue=task_data["overdue"],
             due_today=task_data["due_today"],
@@ -140,6 +150,9 @@ async def get_agent_context(
         ),
         email=EmailContext(**email_data),
     )
+
+    await set_cached(cache_key, response.model_dump(), _CONTEXT_TTL)
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -151,9 +164,14 @@ async def post_agent_checkin(
     body: CheckinRequest,
     user: dict[str, Any] = Depends(get_current_user),
 ) -> CheckinResponse:
-    """Accept a morning or evening check-in from an agent."""
+    """Accept a morning or evening check-in from an agent.
+
+    Invalidates the context cache so the next fetch reflects the new state.
+    """
     owner_id: str = user["user_id"]
     checkin_id = checkin_store.save(owner_id, body.model_dump())
+    # Invalidate context cache so next fetch picks up updated state
+    await invalidate(f"agent_context:{owner_id}")
     return CheckinResponse(status="accepted", checkin_id=checkin_id)
 
 
@@ -190,7 +208,6 @@ async def post_capture(
     """
     content_lower = body.content.lower()
 
-    # Simple heuristic routing until agent plane NLP is wired up
     if any(kw in content_lower for kw in ("follow up", "remind", "deadline", "due")):
         action = SuggestedAction.create_task
         details = f"Create task: {body.content}"
