@@ -46,12 +46,30 @@ class EmailContext(BaseModel):
     urgent_count: int = 0
 
 
+class FinanceContext(BaseModel):
+    """SecTreas officer context bundle — finance section."""
+    pending_cosignature_count: int = 0
+    dues_arrears_facilities: list[str] = []
+    ytd_disbursements: float = 0.0
+    budget_variance_alert: bool = False
+
+
+class SchedulingContext(BaseModel):
+    """ExecSec officer context bundle — scheduling/minutes section."""
+    pending_requests: int = 0
+    minutes_drafts_in_progress: int = 0
+    minutes_pending_approval: int = 0
+
+
 class AgentContextResponse(BaseModel):
     owner_id: str
     generated_at: str
     calendar: CalendarContext
     tasks: TaskContext
     email: EmailContext
+    # Officer-specific context sections (None for non-officers / wrong role)
+    finance: Optional[FinanceContext] = None
+    scheduling: Optional[SchedulingContext] = None
 
 
 # ---------------------------------------------------------------------------

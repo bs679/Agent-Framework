@@ -23,13 +23,18 @@ from integrations.pulse.api.v1.schemas import (
     CheckinStatusResponse,
     CheckinSlotStatus,
     EmailContext,
+    FinanceContext,
+    SchedulingContext,
     SuggestedAction,
     TaskContext,
     TaskItem,
 )
 from integrations.pulse.core.auth import get_current_user
 from integrations.pulse.core.executive_guard import sanitize_event
+from integrations.pulse.core.roles import _has_officer_role
 from integrations.pulse.core.store import checkin_store
+from integrations.pulse.db.session import get_db
+from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
 
@@ -103,11 +108,16 @@ def _stub_email() -> dict[str, Any]:
 @router.get("/context", response_model=AgentContextResponse)
 async def get_agent_context(
     user: dict[str, Any] = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> AgentContextResponse:
     """Return the daily context bundle for the authenticated user's agent.
 
     Calendar events that match executive-session keywords are sanitised
     automatically by the executive-session guard.
+
+    For OFFICER role users, the response also includes role-specific context:
+      - SecTreas: 'finance' section with pending co-signatures and dues arrears
+      - ExecSec:  'scheduling' section with minutes drafts and pending requests
     """
     owner_id: str = user["user_id"]
 
@@ -125,6 +135,23 @@ async def get_agent_context(
     task_data = _stub_tasks()
     email_data = _stub_email()
 
+    # Build officer-specific context sections
+    finance_ctx: FinanceContext | None = None
+    scheduling_ctx: SchedulingContext | None = None
+
+    if _has_officer_role(user):
+        try:
+            from integrations.pulse.api.v1.finance import build_finance_context
+            finance_ctx = FinanceContext(**build_finance_context(db))
+        except Exception:
+            pass  # Non-blocking: officer context is best-effort
+
+        try:
+            from integrations.pulse.api.v1.minutes_api import build_scheduling_context
+            scheduling_ctx = SchedulingContext(**build_scheduling_context(db))
+        except Exception:
+            pass
+
     return AgentContextResponse(
         owner_id=owner_id,
         generated_at=datetime.utcnow().isoformat() + "Z",
@@ -139,6 +166,8 @@ async def get_agent_context(
             items=[TaskItem(**t) for t in task_data["items"]],
         ),
         email=EmailContext(**email_data),
+        finance=finance_ctx,
+        scheduling=scheduling_ctx,
     )
 
 

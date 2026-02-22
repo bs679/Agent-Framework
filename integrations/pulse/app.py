@@ -11,18 +11,35 @@ Usage (standalone):
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 
 from integrations.pulse.api.v1.agents import router as agents_router
+from integrations.pulse.api.v1.finance import router as finance_router
+from integrations.pulse.api.v1.minutes_api import router as minutes_router
+from integrations.pulse.api.v1.scheduling import router as scheduling_router
 from integrations.pulse.core.config import get_settings
+from integrations.pulse.db.session import create_all_tables
 
 settings = get_settings()
 
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    """Create DB tables on startup (dev convenience).
+
+    In production, run: alembic -c integrations/pulse/alembic.ini upgrade head
+    """
+    create_all_tables()
+    yield
+
+
 app = FastAPI(
     title="Pulse — Agent Plane Integration",
-    version="0.7.0",
+    version="0.9.0",
     docs_url="/docs" if settings.agent_plane_enabled else None,
+    lifespan=lifespan,
 )
 
 
@@ -44,6 +61,11 @@ async def correlation_id_middleware(request: Request, call_next) -> Response:
 
 if settings.agent_plane_enabled:
     app.include_router(agents_router)
+
+# Phase 9b — Officer module routers (always mounted regardless of agent_plane flag)
+app.include_router(finance_router)
+app.include_router(minutes_router)
+app.include_router(scheduling_router)
 
 
 @app.get("/health")
