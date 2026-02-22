@@ -14,6 +14,15 @@ from the Azure AD discovery endpoint, and validates aud/iss claims.
 
 To enable dev mode explicitly set:
     PULSE_DEV_MODE=true  # in .env — must not be set in production
+
+Role resolution
+---------------
+``get_current_user_with_role`` extends the base token payload with ``role``
+and ``role_detail`` by looking up the user's entry in ``user_profiles``.
+
+If no profile exists the user defaults to STAFF / staff.  The profile is
+lazily created on the first call so all authenticated users always have
+a profile record.
 """
 
 from __future__ import annotations
@@ -27,8 +36,10 @@ from typing import Any
 import httpx
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.orm import Session
 
 from integrations.pulse.core.config import AgentPlaneSettings, get_settings
+from integrations.pulse.core.database import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -144,8 +155,59 @@ async def get_current_user(
     """FastAPI dependency — returns the authenticated user's token claims.
 
     Injects ``user_id`` (preferred_username or oid) into the dict for
-    convenience.
+    convenience.  Does NOT look up role — use ``get_current_user_with_role``
+    when you need role-based access control.
     """
     payload = await _decode_token(credentials.credentials, settings)
     payload["user_id"] = payload.get("preferred_username") or payload.get("oid", "unknown")
+    return payload
+
+
+async def get_current_user_with_role(
+    credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
+    settings: AgentPlaneSettings = Depends(get_settings),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """FastAPI dependency — token claims enriched with role + role_detail.
+
+    Looks up the ``user_profiles`` table for the authenticated user.  If no
+    profile exists, one is created with defaults (STAFF / staff) so that
+    every authenticated user always has a valid profile.
+
+    Returns the token payload dict augmented with:
+        "user_id"    — preferred_username or oid
+        "role"       — "ADMIN" | "OFFICER" | "STAFF"
+        "role_detail"— "president" | "sectreasurer" | "execsecretary" | "staff"
+    """
+    # Lazy import to avoid circular import at module load time
+    from integrations.pulse.core.models import UserProfile
+
+    payload = await _decode_token(credentials.credentials, settings)
+    user_id: str = payload.get("preferred_username") or payload.get("oid", "unknown")
+    payload["user_id"] = user_id
+
+    # Look up or create profile
+    profile: UserProfile | None = (
+        db.query(UserProfile)
+        .filter(UserProfile.azure_user_id == user_id)
+        .first()
+    )
+
+    if profile is None:
+        # Lazy-create a default STAFF profile for new users
+        profile = UserProfile(
+            azure_user_id=user_id,
+            role="STAFF",
+            role_detail="staff",
+            display_name=payload.get("name"),
+            email=payload.get("preferred_username"),
+        )
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+        logger.info("Created default STAFF profile for user %s", user_id)
+
+    payload["role"] = profile.role
+    payload["role_detail"] = profile.role_detail
+
     return payload

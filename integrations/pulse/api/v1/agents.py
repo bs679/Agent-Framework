@@ -3,97 +3,44 @@
 All endpoints live under ``/api/v1/agents/`` and require Azure AD JWT
 authentication.  They are additive — no existing Pulse endpoints are
 modified.
+
+Context endpoint
+----------------
+GET /api/v1/agents/context uses the role-based context builder to return
+different sections depending on the authenticated user's role:
+
+  ADMIN (President)   → base + compliance + grievances + board + finance_summary + legislative
+  OFFICER SecTreas    → base + compliance + finance (full detail) + minutes_pending
+  OFFICER ExecSec     → base + compliance + scheduling + minutes (drafts)
+  STAFF               → base + compliance only (no sensitive org data)
+
+Compliance is always included but filtered so each role only sees items
+assigned to their role or to ALL.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 
 from integrations.pulse.api.v1.schemas import (
     AgentContextResponse,
-    CalendarContext,
-    CalendarEvent,
     CaptureRequest,
     CaptureResponse,
     CheckinRequest,
     CheckinResponse,
     CheckinStatusResponse,
     CheckinSlotStatus,
-    EmailContext,
     SuggestedAction,
-    TaskContext,
-    TaskItem,
 )
-from integrations.pulse.core.auth import get_current_user
-from integrations.pulse.core.executive_guard import sanitize_event
+from integrations.pulse.core.auth import get_current_user_with_role
+from integrations.pulse.core.context_builder import build_context
+from integrations.pulse.core.database import get_db
 from integrations.pulse.core.store import checkin_store
 
 router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
-
-
-# ---------------------------------------------------------------------------
-# Stub data providers — replace with real Pulse DB / MS Graph queries.
-# ---------------------------------------------------------------------------
-
-def _stub_calendar_events() -> list[dict[str, Any]]:
-    """Return placeholder calendar events for development."""
-    now = datetime.utcnow()
-    return [
-        {
-            "title": "Staff meeting",
-            "time": "09:00",
-            "duration_minutes": 60,
-            "location": "Room 201",
-            "attendees_count": 8,
-        },
-        {
-            "title": "Executive Session - Board Review",
-            "time": "14:00",
-            "duration_minutes": 90,
-            "location": "Board Room",
-            "attendees_count": 5,
-        },
-        {
-            "title": "Grievance committee check-in",
-            "time": "16:00",
-            "duration_minutes": 30,
-            "location": "Zoom",
-            "attendees_count": 4,
-        },
-    ]
-
-
-def _stub_upcoming_events() -> list[dict[str, Any]]:
-    """Placeholder upcoming events (next 48 h)."""
-    return [
-        {
-            "title": "Budget review",
-            "time": "10:00",
-            "duration_minutes": 120,
-            "location": "Finance Office",
-            "attendees_count": 3,
-        },
-    ]
-
-
-def _stub_tasks() -> dict[str, Any]:
-    return {
-        "overdue": 1,
-        "due_today": 3,
-        "high_priority": 2,
-        "items": [
-            {"id": "t-001", "title": "File Waterbury grievance #24-117", "due_date": "2026-02-22", "priority": "high"},
-            {"id": "t-002", "title": "Review steward reports", "due_date": "2026-02-21", "priority": "medium"},
-            {"id": "t-003", "title": "Prepare bargaining notes", "due_date": "2026-02-21", "priority": "high"},
-        ],
-    }
-
-
-def _stub_email() -> dict[str, Any]:
-    return {"unread_count": 12, "urgent_count": 2}
 
 
 # ---------------------------------------------------------------------------
@@ -102,43 +49,23 @@ def _stub_email() -> dict[str, Any]:
 
 @router.get("/context", response_model=AgentContextResponse)
 async def get_agent_context(
-    user: dict[str, Any] = Depends(get_current_user),
+    user: dict[str, Any] = Depends(get_current_user_with_role),
+    db: Session = Depends(get_db),
 ) -> AgentContextResponse:
     """Return the daily context bundle for the authenticated user's agent.
 
-    Calendar events that match executive-session keywords are sanitised
-    automatically by the executive-session guard.
+    The bundle is assembled by the role-based context builder.  Each role
+    receives only the sections appropriate for their access level:
+
+    - Calendar events with executive-session keywords are sanitised.
+    - Compliance items are filtered to the user's role.
+    - Officer/admin sections are absent for STAFF users.
     """
-    owner_id: str = user["user_id"]
-
-    # Fetch raw events then sanitize each through the guard
-    today_raw = _stub_calendar_events()
-    upcoming_raw = _stub_upcoming_events()
-
-    today_events = [
-        CalendarEvent(**sanitize_event(evt)) for evt in today_raw
-    ]
-    upcoming_events = [
-        CalendarEvent(**sanitize_event(evt)) for evt in upcoming_raw
-    ]
-
-    task_data = _stub_tasks()
-    email_data = _stub_email()
-
-    return AgentContextResponse(
-        owner_id=owner_id,
-        generated_at=datetime.utcnow().isoformat() + "Z",
-        calendar=CalendarContext(
-            today=today_events,
-            upcoming_48h=upcoming_events,
-        ),
-        tasks=TaskContext(
-            overdue=task_data["overdue"],
-            due_today=task_data["due_today"],
-            high_priority=task_data["high_priority"],
-            items=[TaskItem(**t) for t in task_data["items"]],
-        ),
-        email=EmailContext(**email_data),
+    return build_context(
+        owner_id=user["user_id"],
+        role=user["role"],
+        role_detail=user["role_detail"],
+        db=db,
     )
 
 
@@ -149,7 +76,7 @@ async def get_agent_context(
 @router.post("/checkin", response_model=CheckinResponse)
 async def post_agent_checkin(
     body: CheckinRequest,
-    user: dict[str, Any] = Depends(get_current_user),
+    user: dict[str, Any] = Depends(get_current_user_with_role),
 ) -> CheckinResponse:
     """Accept a morning or evening check-in from an agent."""
     owner_id: str = user["user_id"]
@@ -163,7 +90,7 @@ async def post_agent_checkin(
 
 @router.get("/checkin/status", response_model=CheckinStatusResponse)
 async def get_checkin_status(
-    user: dict[str, Any] = Depends(get_current_user),
+    user: dict[str, Any] = Depends(get_current_user_with_role),
 ) -> CheckinStatusResponse:
     """Return today's morning/evening check-in status for the sidebar."""
     owner_id: str = user["user_id"]
@@ -181,7 +108,7 @@ async def get_checkin_status(
 @router.post("/capture", response_model=CaptureResponse)
 async def post_capture(
     body: CaptureRequest,
-    user: dict[str, Any] = Depends(get_current_user),
+    user: dict[str, Any] = Depends(get_current_user_with_role),
 ) -> CaptureResponse:
     """Quick-capture: Pulse sends raw note to agent for processing.
 
