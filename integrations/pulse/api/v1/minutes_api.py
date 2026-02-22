@@ -308,6 +308,12 @@ async def update_minutes(
             detail=f"Minutes in '{m.status}' status cannot be edited. Only 'draft' status allows editing.",
         )
 
+    if m.drafted_by != user["user_id"] and not _has_officer_role(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the drafter or an officer may edit draft minutes.",
+        )
+
     if body.content_md is not None:
         stored = _encrypt_content(body.content_md) if m.executive_session_flag else body.content_md
         m.content_md = stored

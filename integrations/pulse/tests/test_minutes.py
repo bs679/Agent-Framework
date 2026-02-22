@@ -400,6 +400,29 @@ class TestMinutesPatch:
         assert resp.status_code == 200
         assert "Updated Minutes" in resp.json()["content_md"]
 
+    def test_non_drafter_non_officer_cannot_edit_draft(self, client_for, execsec_user, staff_user):
+        client_exec = client_for(execsec_user)
+        m = _generate_draft(client_exec)
+
+        client_staff = client_for(staff_user)
+        resp = client_staff.patch(
+            f"/api/v1/minutes/{m['id']}",
+            json={"content_md": "Unauthorized edit"},
+        )
+        assert resp.status_code == 403
+
+    def test_officer_can_edit_another_users_draft(self, client_for, execsec_user, sectreas_user):
+        client_exec = client_for(execsec_user)
+        m = _generate_draft(client_exec)
+
+        client_sectreas = client_for(sectreas_user)
+        resp = client_sectreas.patch(
+            f"/api/v1/minutes/{m['id']}",
+            json={"content_md": "Officer correction"},
+        )
+        assert resp.status_code == 200
+        assert "Officer correction" in resp.json()["content_md"]
+
     def test_cannot_edit_pending_approval_minutes(
         self, client_for, execsec_user
     ):

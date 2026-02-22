@@ -17,6 +17,7 @@ class AgentPlaneSettings(BaseSettings):
     executive_session_keywords: str = (
         "executive session,exec session,board executive"
     )
+    db_auto_create_on_startup: bool = False
 
     # Azure AD
     azure_ad_tenant_id: str = ""

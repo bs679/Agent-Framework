@@ -27,11 +27,13 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
-    """Create DB tables on startup (dev convenience).
+    """Optionally create DB tables on startup (dev convenience).
 
     In production, run: alembic -c integrations/pulse/alembic.ini upgrade head
+    and keep db_auto_create_on_startup=false.
     """
-    create_all_tables()
+    if settings.db_auto_create_on_startup:
+        create_all_tables()
     yield
 
 
