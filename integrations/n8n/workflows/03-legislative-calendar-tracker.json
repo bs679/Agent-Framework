@@ -1,0 +1,251 @@
+{
+  "name": "Legislative Calendar Tracker",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.cga.ct.gov/asp/content/legitempage.asp",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "fetch-cga-page",
+      "name": "Fetch CT General Assembly Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse the CGA HTML page and extract hearing information\nconst html = $input.first().json.data || $input.first().json.body || '';\n\n// Extract text content — strip HTML tags for keyword matching\nconst textContent = html.replace(/<[^>]*>/g, ' ').replace(/\\s+/g, ' ');\n\n// Split into potential hearing blocks\n// CGA pages typically list hearings with date, committee, and subject\nconst lines = textContent.split(/(?=\\d{1,2}\\/\\d{1,2}\\/\\d{2,4})/g);\n\nconst keywords = [\n  'staffing ratio', 'collective bargaining', 'healthcare worker',\n  'wages and hours', 'nurse staffing', 'hospital worker',\n  'SEBAC', '1199', 'AFSCME', 'labor', 'health care',\n  'nursing', 'wage', 'bargaining unit', 'union'\n];\n\nconst hearings = [];\nfor (const line of lines) {\n  const trimmed = line.trim();\n  if (!trimmed || trimmed.length < 20) continue;\n\n  const lowerLine = trimmed.toLowerCase();\n  const matchedKeywords = keywords.filter(kw => lowerLine.includes(kw.toLowerCase()));\n\n  if (matchedKeywords.length > 0) {\n    // Try to extract a date\n    const dateMatch = trimmed.match(/(\\d{1,2}\\/\\d{1,2}\\/\\d{2,4})/);\n    hearings.push({\n      json: {\n        raw_text: trimmed.substring(0, 500),\n        date: dateMatch ? dateMatch[1] : 'unknown',\n        matched_keywords: matchedKeywords,\n        keyword_count: matchedKeywords.length\n      }\n    });\n  }\n}\n\nif (hearings.length === 0) {\n  return [{\n    json: {\n      raw_text: 'No hearings matching healthcare labor keywords found this week.',\n      date: 'N/A',\n      matched_keywords: [],\n      keyword_count: 0,\n      no_results: true\n    }\n  }];\n}\n\nreturn hearings;"
+      },
+      "id": "parse-hearings",
+      "name": "Parse and Filter Hearings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-results",
+              "leftValue": "={{ $json.no_results }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notTrue"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "filter-has-results",
+      "name": "Filter Has Results",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [700, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate all hearings into a single prompt for Ollama\nconst hearings = $input.all().map((item, i) => {\n  return `Hearing ${i+1}:\\n  Date: ${item.json.date}\\n  Matched keywords: ${item.json.matched_keywords.join(', ')}\\n  Details: ${item.json.raw_text}`;\n});\n\nconst prompt = `You are a legislative analyst for a healthcare workers union (CHCA, District 1199NE, AFSCME) in Connecticut. Briefly summarize these CT legislative hearings relevant to healthcare labor. Rate each high/medium/low relevance. Be concise.\\n\\n${hearings.join('\\n\\n')}`;\n\nreturn [{\n  json: {\n    prompt: prompt,\n    hearing_count: hearings.length,\n    hearings_raw: $input.all().map(i => i.json)\n  }\n}];"
+      },
+      "id": "build-ollama-prompt",
+      "name": "Build Ollama Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $credentials.ollamaBaseUrl }}/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"llama3.1:8b\",\n  \"prompt\": {{ JSON.stringify($json.prompt) }},\n  \"stream\": false\n}",
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "ollama-summarize",
+      "name": "Ollama Summarize Hearings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1150, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build tasks for each relevant hearing to post to Pulse\nconst ollamaResponse = $('Ollama Summarize Hearings').first().json.response || '';\nconst hearingsRaw = $('Build Ollama Prompt').first().json.hearings_raw || [];\n\nconst tasks = hearingsRaw.map((hearing, i) => {\n  return {\n    json: {\n      title: `Legislative hearing: ${hearing.date} — ${hearing.matched_keywords.slice(0, 3).join(', ')}`,\n      description: hearing.raw_text.substring(0, 300),\n      tag: 'legislative',\n      assigned_to: 'dave',\n      priority: hearing.keyword_count >= 3 ? 'high' : 'medium',\n      ai_summary: ollamaResponse,\n      source: 'CT General Assembly',\n      hearing_date: hearing.date\n    }\n  };\n});\n\nreturn tasks.length > 0 ? tasks : [{ json: { skip: true } }];"
+      },
+      "id": "build-tasks",
+      "name": "Build Pulse Tasks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "not-skip",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notTrue"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "filter-skip",
+      "name": "Filter Valid Tasks",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [1600, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $credentials.pulseApiBaseUrl }}/api/v1/tasks",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"title\": {{ JSON.stringify($json.title) }},\n  \"description\": {{ JSON.stringify($json.description) }},\n  \"tag\": \"legislative\",\n  \"assigned_to\": \"dave\",\n  \"priority\": {{ JSON.stringify($json.priority) }},\n  \"metadata\": {\n    \"ai_summary\": {{ JSON.stringify($json.ai_summary) }},\n    \"source\": \"CT General Assembly\",\n    \"hearing_date\": {{ JSON.stringify($json.hearing_date) }}\n  }\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "post-tasks",
+      "name": "POST Tasks to Pulse",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1800, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "pulse-api-token",
+          "name": "Pulse API Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          { "node": "Fetch CT General Assembly Page", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch CT General Assembly Page": {
+      "main": [
+        [
+          { "node": "Parse and Filter Hearings", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Parse and Filter Hearings": {
+      "main": [
+        [
+          { "node": "Filter Has Results", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Filter Has Results": {
+      "main": [
+        [
+          { "node": "Build Ollama Prompt", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Build Ollama Prompt": {
+      "main": [
+        [
+          { "node": "Ollama Summarize Hearings", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Ollama Summarize Hearings": {
+      "main": [
+        [
+          { "node": "Build Pulse Tasks", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Build Pulse Tasks": {
+      "main": [
+        [
+          { "node": "Filter Valid Tasks", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Filter Valid Tasks": {
+      "main": [
+        [
+          { "node": "POST Tasks to Pulse", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "weekly", "id": "tag-weekly" },
+    { "name": "legislative", "id": "tag-legislative" },
+    { "name": "phase-8", "id": "tag-phase-8" }
+  ],
+  "triggerCount": 1,
+  "active": false,
+  "pinData": {},
+  "versionId": "1"
+}
