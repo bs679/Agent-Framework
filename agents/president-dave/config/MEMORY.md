@@ -1,12 +1,16 @@
 ---
+version: "1.0"
 agent_id: president-dave
-retention_days: 365
+retention_days_short: 30
+retention_days_long: 365
+encrypt_at_rest: true
 sensitive_categories:
+  - member_data
   - grievance_details
   - negotiation_strategy
-  - member_personal_info
-  - financial_records
-  - legal_communications
+  - financial_account_info
+  - executive_session_content
+forget_on_request: true
 never_forget:
   - contract_deadlines
   - grievance_outcomes

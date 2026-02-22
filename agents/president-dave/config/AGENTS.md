@@ -1,9 +1,15 @@
 ---
+version: "1.0"
 agent_id: president-dave
+plane_name: chca-agents-plane
 collaborates_with:
   - sectreasurer-jane
   - execsecretary-maria
-role_in_plane: lead
+escalation_path: dave-human
+shared_tools:
+  - calendar
+  - email
+  - pulse-tasks
 ---
 
 # Agents
