@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from integrations.pulse.api.v1.schemas import (
@@ -47,6 +47,35 @@ router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
 # ---------------------------------------------------------------------------
 
 _ALERT_WINDOW_DAYS = 7
+PRESIDENT_AGENT_ID = "dave-president"
+
+
+def _claim_values(user: dict[str, Any], claim_name: str) -> set[str]:
+    """Normalize claim values that may be either a string or a list."""
+    raw = user.get(claim_name)
+    if isinstance(raw, str):
+        return {raw.lower()}
+    if isinstance(raw, list):
+        return {str(v).lower() for v in raw}
+    return set()
+
+
+def _is_president_user(user: dict[str, Any]) -> bool:
+    """Return True when the authenticated principal is the President role."""
+    if user.get("user_id") == PRESIDENT_AGENT_ID:
+        return True
+    return "president" in _claim_values(user, "roles")
+
+
+def _is_scheduler_service(user: dict[str, Any]) -> bool:
+    """Return True when JWT claims identify the scheduler service principal."""
+    roles = _claim_values(user, "roles")
+    scopes = {
+        scope.lower()
+        for scope in str(user.get("scp", "")).split()
+        if scope
+    }
+    return bool(roles.intersection({"scheduler", "service"}) or "scheduler.write" in scopes)
 
 
 def _build_grievance_context(db: Session) -> GrievanceContext:
@@ -216,9 +245,12 @@ async def get_agent_context(
     task_data = _stub_tasks()
     email_data = _stub_email()
 
-    # Build officer-specific context sections from the live database
-    grievance_ctx = _build_grievance_context(db)
-    board_ctx = _build_board_context(db)
+    grievance_ctx = None
+    board_ctx = None
+    if _is_president_user(user):
+        # Build officer-specific context sections from the live database
+        grievance_ctx = _build_grievance_context(db)
+        board_ctx = _build_board_context(db)
 
     return AgentContextResponse(
         owner_id=owner_id,
@@ -250,6 +282,15 @@ async def post_agent_checkin(
 ) -> CheckinResponse:
     """Accept a morning or evening check-in from an agent."""
     owner_id: str = user["user_id"]
+    if body.agent_id != owner_id:
+        if _is_scheduler_service(user):
+            owner_id = body.agent_id
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot submit check-ins for another agent",
+            )
+
     checkin_id = checkin_store.save(owner_id, body.model_dump())
     return CheckinResponse(status="accepted", checkin_id=checkin_id)
 

@@ -15,7 +15,11 @@ from integrations.pulse.core.store import checkin_store
 # ── Auth override ──────────────────────────────────────────────────
 
 def _mock_user() -> dict:
-    return {"user_id": "dave@chca.org", "preferred_username": "dave@chca.org"}
+    return {
+        "user_id": "president-dave-a3f2",
+        "preferred_username": "president-dave-a3f2",
+        "roles": ["president"],
+    }
 
 
 app.dependency_overrides[get_current_user] = _mock_user
@@ -38,7 +42,7 @@ class TestContextEndpoint:
 
     def test_response_structure(self, client: TestClient) -> None:
         data = client.get("/api/v1/agents/context").json()
-        assert data["owner_id"] == "dave@chca.org"
+        assert data["owner_id"] == "president-dave-a3f2"
         assert "generated_at" in data
         assert "calendar" in data
         assert "tasks" in data
@@ -85,6 +89,18 @@ class TestContextEndpoint:
         assert "urgent_count" in email
 
 
+    def test_non_president_context_omits_officer_sections(self, client: TestClient) -> None:
+        def _staff_user() -> dict:
+            return {"user_id": "staff-1", "preferred_username": "staff-1", "roles": ["staff"]}
+
+        app.dependency_overrides[get_current_user] = _staff_user
+        data = client.get("/api/v1/agents/context").json()
+        assert data["grievances"] is None
+        assert data["board"] is None
+
+        app.dependency_overrides[get_current_user] = _mock_user
+
+
 # ── POST /api/v1/agents/checkin ────────────────────────────────────
 
 class TestCheckinEndpoint:
@@ -126,6 +142,31 @@ class TestCheckinEndpoint:
         body["checkin_type"] = "midnight"
         resp = client.post("/api/v1/agents/checkin", json=body)
         assert resp.status_code == 422
+
+
+    def test_rejects_cross_agent_checkin_for_non_service_token(self, client: TestClient) -> None:
+        def _staff_user() -> dict:
+            return {"user_id": "staff-1", "preferred_username": "staff-1", "roles": ["staff"]}
+
+        app.dependency_overrides[get_current_user] = _staff_user
+        resp = client.post("/api/v1/agents/checkin", json=self._morning_checkin())
+        assert resp.status_code == 403
+
+        app.dependency_overrides[get_current_user] = _mock_user
+
+    def test_allows_scheduler_service_to_post_for_president(self, client: TestClient) -> None:
+        def _scheduler_user() -> dict:
+            return {
+                "user_id": "svc-scheduler",
+                "preferred_username": "svc-scheduler",
+                "roles": ["service", "scheduler"],
+            }
+
+        app.dependency_overrides[get_current_user] = _scheduler_user
+        resp = client.post("/api/v1/agents/checkin", json=self._morning_checkin())
+        assert resp.status_code == 200
+
+        app.dependency_overrides[get_current_user] = _mock_user
 
 
 # ── GET /api/v1/agents/checkin/status ──────────────────────────────
