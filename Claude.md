@@ -185,7 +185,7 @@ openclaw-aios/
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1 | Repo scaffold + base config schema | 🔲 Not started |
-| 2 | Staff onboarding form (React webapp) | 🔲 Not started |
+| 2 | Staff onboarding form (React webapp) | ✅ Complete |
 | 3 | Config file generators (6 files per agent) | 🔲 Not started |
 | 4 | Provisioning CLI (`aios planes` commands) | 🔲 Not started |
 | 5 | Docker isolation + per-agent containers | 🔲 Not started |
