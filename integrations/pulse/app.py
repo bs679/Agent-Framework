@@ -6,6 +6,12 @@ Pulse app to include the agent routes.
 
 Usage (standalone):
     uvicorn integrations.pulse.app:app --reload --port 8000
+
+Phase 9c additions
+------------------
+- /api/v1/compliance/* — shared compliance calendar (all 8 agents, role-filtered)
+- /api/v1/admin/*      — ADMIN-only user role management
+- Database initialised on startup via init_db()
 """
 
 from __future__ import annotations
@@ -18,41 +24,27 @@ from typing import AsyncIterator
 from fastapi import FastAPI, Request, Response
 
 from integrations.ai.router import AIRouter
+from integrations.pulse.api.v1.admin import router as admin_router
 from integrations.pulse.api.v1.agents import router as agents_router
+# Phase 9a — President Officer Modules
 from integrations.pulse.api.v1.board import router as board_router
+from integrations.pulse.api.v1.compliance import router as compliance_router
 from integrations.pulse.api.v1.grievances import router as grievances_router
 from integrations.pulse.api.v1.legislative import router as legislative_router
 from integrations.pulse.api.v1.research import router as research_router
 from integrations.pulse.core.config import get_settings
+from integrations.pulse.core.database import init_db
 from integrations.pulse.core.scheduler import create_scheduler
-from integrations.pulse.db.session import Base, engine
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
-# ---------------------------------------------------------------------------
-# Create all tables on startup (idempotent — safe when Alembic is also used)
-# ---------------------------------------------------------------------------
-def _ensure_tables() -> None:
-    """Create tables that don't exist yet.
-
-    In production, prefer running ``alembic upgrade head`` before starting the
-    app. This call is a dev-mode safety net so the app is usable without a
-    manual migration step.
-    """
-    import integrations.pulse.db.models  # noqa: F401 — registers all models
-    Base.metadata.create_all(bind=engine)
-
-
-# ---------------------------------------------------------------------------
-# Application lifespan — start/stop the background scheduler
-# ---------------------------------------------------------------------------
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    # Ensure DB tables exist (safe no-op if Alembic already ran)
-    _ensure_tables()
+    """Initialize the database and start background services on startup."""
+    # Phase 9c: Initialize database (create tables + seed compliance data)
+    init_db()
 
     # Initialize AIRouter — stored on app.state so route handlers can reach it
     ai_router = AIRouter()
@@ -61,7 +53,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     for model, mdl_status in health.items():
         logger.info("[pulse] AI router — %s: %s", model, mdl_status)
 
-    # Start grievance deadline monitoring scheduler
+    # Start grievance deadline monitoring scheduler (Phase 9a)
     scheduler = create_scheduler()
     scheduler.start()
     logger.info("[pulse] Grievance deadline scheduler started.")
@@ -98,8 +90,11 @@ async def correlation_id_middleware(request: Request, call_next) -> Response:
 
 if settings.agent_plane_enabled:
     app.include_router(agents_router)
+    # Phase 9c — Compliance calendar and admin endpoints
+    app.include_router(compliance_router)
+    app.include_router(admin_router)
 
-# Phase 9a — President Officer Modules
+# Phase 9a — President Officer Module endpoints (always mounted)
 app.include_router(grievances_router)
 app.include_router(research_router)
 app.include_router(legislative_router)
