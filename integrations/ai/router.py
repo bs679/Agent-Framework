@@ -363,7 +363,8 @@ class AIRouter:
         Resolve a single string value containing ${VAR} placeholders.
 
         - If the entire string is a single ${VAR}, return the resolved value
-          with type coercion (booleans, None for empty).
+          with type coercion (booleans). Unset variables resolve to an empty
+          string so string-typed config fields remain valid.
         - If ${VAR} is embedded in a larger string, substitute in-place.
         """
         pattern = re.compile(r"\$\{([^}]+)\}")
@@ -372,9 +373,11 @@ class AIRouter:
         full_match = pattern.fullmatch(value)
         if full_match:
             env_val = os.environ.get(full_match.group(1), "")
+            if env_val == "":
+                return ""
             if env_val.lower() in ("true", "1", "yes"):
                 return True
-            if env_val.lower() in ("false", "0", "no", ""):
+            if env_val.lower() in ("false", "0", "no"):
                 return False
             return env_val
 
