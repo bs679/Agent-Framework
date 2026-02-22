@@ -1,22 +1,25 @@
-"""AIOS CLI — manage the agent plane.
+"""
+aios CLI — top-level entry point.
 
-Entry point for the `aios` command. Registers all command groups.
+Usage:
+    aios ai test-routing    Show the full routing table
+    aios ai health          Check model endpoint status
+    aios ai test            Send a test request through the router
 """
 
-import typer
+import click
 
-from provisioning.cli.commands import planes, agents, config
+from provisioning.cli.ai import ai_group
 
-app = typer.Typer(
-    name="aios",
-    help="Manage OpenClaw agent planes, agents, and configuration.",
-    no_args_is_help=True,
-)
 
-app.add_typer(planes.app, name="planes")
-app.add_typer(agents.app, name="agents")
-app.add_typer(config.app, name="config")
+@click.group()
+def cli():
+    """AIOS — Agent Infrastructure & Orchestration System."""
+    pass
+
+
+cli.add_command(ai_group, name="ai")
 
 
 if __name__ == "__main__":
-    app()
+    cli()
