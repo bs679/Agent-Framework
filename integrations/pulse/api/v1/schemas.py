@@ -46,12 +46,47 @@ class EmailContext(BaseModel):
     urgent_count: int = 0
 
 
+# ---------------------------------------------------------------------------
+# Grievance context section — injected for President agent
+# ---------------------------------------------------------------------------
+
+class GrievanceDeadlineItem(BaseModel):
+    case_number: str
+    facility: str
+    deadline_type: str
+    days_remaining: int
+    status: str
+
+
+class GrievanceContext(BaseModel):
+    open_count: int = 0
+    approaching_deadline: list[GrievanceDeadlineItem] = []
+
+
+# ---------------------------------------------------------------------------
+# Board context section — injected for President agent
+# ---------------------------------------------------------------------------
+
+class NextMeetingContext(BaseModel):
+    date: str
+    type: str
+    days_away: int
+
+
+class BoardContext(BaseModel):
+    next_meeting: Optional[NextMeetingContext] = None
+    compliance_items_due_30d: int = 0
+
+
 class AgentContextResponse(BaseModel):
     owner_id: str
     generated_at: str
     calendar: CalendarContext
     tasks: TaskContext
     email: EmailContext
+    # Officer-specific sections — present when the authenticated user is a President agent
+    grievances: Optional[GrievanceContext] = None
+    board: Optional[BoardContext] = None
 
 
 # ---------------------------------------------------------------------------

@@ -16,15 +16,17 @@ dependencies = [
     "pydantic-settings>=2.1",
     "click>=8.1",
     "anthropic>=0.40",
-    # PostgreSQL
+    # Phase 9a — President officer modules
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "apscheduler>=3.10",
+    "holidays>=0.46",
+    "PyJWT[crypto]>=2.8",
+    # Phase 10 — Production hardening (PostgreSQL, Redis, rate limiting)
     "asyncpg>=0.29",
     "psycopg2-binary>=2.9.9",
-    "sqlalchemy[asyncio]>=2.0",
-    "alembic>=1.13",
     "pgvector>=0.3",
-    # Redis
     "redis[asyncio]>=5.0",
-    # Rate limiting
     "slowapi>=0.1.9",
 ]
 
