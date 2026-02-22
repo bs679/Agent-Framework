@@ -1,11 +1,3 @@
-<<<<<<< HEAD
-__pycache__/
-*.pyc
-.env
-.pytest_cache/
-node_modules/
-dist/
-=======
 # Python
 __pycache__/
 *.py[cod]
@@ -14,8 +6,9 @@ dist/
 build/
 .eggs/
 
-# Environment
+# Environment — never commit secrets
 .env
+agents/*/.env
 .venv/
 venv/
 
@@ -26,4 +19,27 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
->>>>>>> origin/claude/build-ai-router-C1xKD
+
+# Node
+node_modules/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Backups — large binary archives stay off git
+backups/
+
+# SSL keys — never commit private keys
+*.key
+*.pem
+nginx/ssl/
+
+# n8n exports — may contain credential snippets; review before committing
+# integrations/n8n/workflows/*.json   # uncomment to exclude workflow exports
+
+# Terraform state — may contain sensitive outputs
+provisioning/terraform/*.tfstate
+provisioning/terraform/*.tfstate.backup
+provisioning/terraform/.terraform/

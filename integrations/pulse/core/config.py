@@ -23,6 +23,19 @@ class AgentPlaneSettings(BaseSettings):
     azure_ad_client_id: str = ""
     azure_ad_audience: str = "api://pulse-app"
 
+    # Database
+    database_url: str = "postgresql+asyncpg://pulse:pulse@localhost:5432/aios_pulse"
+
+    # Redis
+    redis_url: str = "redis://localhost:6379/0"
+
+    # CORS — comma-separated allowed origins
+    cors_origins: str = "tauri://localhost,http://localhost:5173,http://localhost:3000"
+
+    # Monitoring
+    n8n_health_webhook_url: str = ""
+    expected_agent_count: int = 8
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     @property
