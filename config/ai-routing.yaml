@@ -20,7 +20,7 @@ models:
 
   claude:
     api_key: ${ANTHROPIC_API_KEY}
-    model: claude-sonnet-4-20250514
+    model: claude-sonnet-4-6
     enabled: ${CLAUDE_ENABLED}          # false by default
     timeout_seconds: 60
 

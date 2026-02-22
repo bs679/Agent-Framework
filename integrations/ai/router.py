@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -30,12 +31,19 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _SENSITIVE_PATTERNS: list[re.Pattern] = [
     re.compile(r"\d{3}-\d{2}-\d{4}"),                          # SSN
-    re.compile(r"#\d{2}-\d{3,4}"),                              # Grievance case numbers
+    re.compile(r"#\d{2}-\d{3,4}"),                              # Grievance case numbers (##-###)
+    re.compile(r"\bGRV[-/]\d{4,}", re.IGNORECASE),              # Alternate grievance ID formats
     re.compile(r"member[_\s]?id[:\s]+\w+", re.IGNORECASE),     # Member IDs
+    re.compile(r"\bBAD\d{5,}\b"),                               # Badge/employee numbers
+    re.compile(r"dues[_\s]?account[:\s]+\w+", re.IGNORECASE),  # Dues account references
+    re.compile(                                                  # Phone numbers
+        r"\b(?:\+1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b"
+    ),
     re.compile(                                                  # Email + grievance/discipline keywords
         r"[\w.-]+@[\w.-]+\.\w+"                                 # email address
         r"(?=[\s\S]{0,200}"                                     # lookahead within 200 chars
-        r"(?:grievance|discipline|termination|arbitration))",    # sensitive keywords
+        r"(?:grievance|discipline|termination|arbitration"       # sensitive keywords
+        r"|negotiation|dues|bargaining|executive.session))",
         re.IGNORECASE,
     ),
 ]
@@ -158,7 +166,26 @@ class AIRouter:
         if caller is None:
             raise RuntimeError(f"Unknown model target: {target}")
 
-        text = await caller(prompt, task)
+        t0 = time.monotonic()
+        try:
+            text = await caller(prompt, task)
+            elapsed_ms = int((time.monotonic() - t0) * 1000)
+            logger.info(
+                "AI call succeeded: task=%s routed_to=%s duration_ms=%d fallback=%s",
+                task,
+                target,
+                elapsed_ms,
+                fallback_used,
+            )
+        except Exception:
+            elapsed_ms = int((time.monotonic() - t0) * 1000)
+            logger.error(
+                "AI call failed: task=%s routed_to=%s duration_ms=%d",
+                task,
+                target,
+                elapsed_ms,
+            )
+            raise
 
         model_name = self.config["models"][target].get("model", target)
 
@@ -266,7 +293,7 @@ class AIRouter:
         """Call Anthropic Claude API, return response text."""
         cfg = self.config["models"]["claude"]
         api_key = cfg.get("api_key") or ""
-        model = cfg.get("model") or "claude-sonnet-4-20250514"
+        model = cfg.get("model") or "claude-sonnet-4-6"
         timeout = cfg.get("timeout_seconds") or 60
 
         client = anthropic.Anthropic(api_key=api_key)
