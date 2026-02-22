@@ -1,28 +1,6 @@
-<<<<<<< HEAD
-=======
-# Runtime artifacts
-.aios/
-agents/*/.env
-agents/*/memory/
-docker-compose.yml
-
-# Python
->>>>>>> origin/claude/docker-agent-isolation-05Y6c
 __pycache__/
 *.pyc
-*.egg-info/
-dist/
-build/
-*.egg
-<<<<<<< HEAD
 .env
-agents/*/memory/
-=======
-
-# IDE
-.vscode/
-.idea/
-
-# OS
-.DS_Store
->>>>>>> origin/claude/docker-agent-isolation-05Y6c
+.pytest_cache/
+node_modules/
+dist/
