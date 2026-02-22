@@ -1,11 +1,3 @@
-<<<<<<< HEAD
-__pycache__/
-*.pyc
-.env
-.pytest_cache/
-node_modules/
-dist/
-=======
 # Python
 __pycache__/
 *.py[cod]
@@ -26,4 +18,12 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
->>>>>>> origin/claude/build-ai-router-C1xKD
+
+# Testing
+.pytest_cache/
+node_modules/
+
+# SQLite dev databases
+*.db
+*.sqlite
+*.sqlite3
