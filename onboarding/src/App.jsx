@@ -1,190 +1,258 @@
-import { useState } from 'react'
-import ProgressBar from './components/ProgressBar'
-import SummaryScreen from './components/SummaryScreen'
-import AboutYou from './sections/AboutYou'
-import WorkStyle from './sections/WorkStyle'
-import Communication from './sections/Communication'
-import YourAgent from './sections/YourAgent'
-import Meetings from './sections/Meetings'
-import InfoFlow from './sections/InfoFlow'
-import GettingStarted from './sections/GettingStarted'
+import React, { useState } from 'react';
+import JSZip from 'jszip';
+import { generateAll, generateAgentId } from './generators/index.js';
 
-const SECTIONS = [
-  { component: AboutYou,      title: 'About You' },
-  { component: WorkStyle,     title: 'Your Work Style' },
-  { component: Communication, title: 'Communication' },
-  { component: YourAgent,     title: 'Your Agent' },
-  { component: Meetings,      title: 'Meetings' },
-  { component: InfoFlow,      title: 'Information Flow' },
-  { component: GettingStarted, title: 'Getting Started' },
-]
+const VIBE_OPTIONS = [
+  'Calm and supportive',
+  'Focused and efficient',
+  'Warm and collaborative',
+  'Adaptive',
+];
 
-// Required fields per section index
-const REQUIRED_FIELDS = {
-  0: ['name', 'role'],
-  6: ['timeSinks'],
-}
+const OVERWHELM_OPTIONS = [
+  'Too many meetings',
+  'Email overload',
+  'Unclear priorities',
+  'Last-minute requests',
+  'Context switching',
+  'Information scattered across systems',
+];
 
-const EMPTY_FORM = {
-  name: '',
-  role: '',
-  pronouns: '',
-  bestThinkingTime: '',
-  focusStyle: '',
-  derailTriggers: [],
-  communicationStyle: '',
-  infoDelivery: '',
-  difficultNews: '',
-  agentName: '',
-  agentPersonality: '',
-  agentRemember: '',
-  meetingPrepTiming: '',
-  meetingNotes: '',
-  updatePreference: '',
-  reportFormat: '',
-  timeSinks: '',
-  neverDo: '',
-  anythingElse: '',
-}
+const ROLE_OPTIONS = [
+  'President',
+  'Secretary/Treasurer',
+  'Executive Secretary',
+  'Staff',
+];
 
-function validate(sectionIndex, formData) {
-  const required = REQUIRED_FIELDS[sectionIndex] || []
-  const errors = {}
-  for (const field of required) {
-    const val = formData[field]
-    const isEmpty = !val || (Array.isArray(val) ? val.length === 0 : !String(val).trim())
-    if (isEmpty) {
-      errors[field] = 'This field is needed before moving on.'
-    }
-  }
-  return errors
-}
+const INITIAL_FORM = {
+  ownerName: '',            // Q1
+  ownerRole: '',            // Q2
+  pronouns: '',             // Q3
+  energyPattern: '',        // Q4
+  focusStyle: '',           // Q5
+  overwhelmTriggers: [],    // Q6
+  communicationStyle: '',   // Q7
+  informationFormat: '',    // Q8
+  badNewsApproach: '',      // Q9
+  agentName: '',            // Q10
+  vibeSelection: '',        // Q11
+  rememberThis: '',         // Q12
+  currentTimeSinks: '',     // Q17
+  neverDoThis: '',          // Q18
+};
 
 export default function App() {
-  const [step, setStep] = useState(0)
-  const [formData, setFormData] = useState(EMPTY_FORM)
-  const [errors, setErrors] = useState({})
+  const [form, setForm] = useState(INITIAL_FORM);
+  const [generated, setGenerated] = useState(null);
+  const [error, setError] = useState('');
 
-  function handleChange(name, value) {
-    setFormData(prev => ({ ...prev, [name]: value }))
-    if (errors[name]) {
-      setErrors(prev => {
-        const next = { ...prev }
-        delete next[name]
-        return next
-      })
+  function update(field) {
+    return (e) => setForm((prev) => ({ ...prev, [field]: e.target.value }));
+  }
+
+  function toggleOverwhelm(value) {
+    setForm((prev) => {
+      const triggers = prev.overwhelmTriggers.includes(value)
+        ? prev.overwhelmTriggers.filter((t) => t !== value)
+        : [...prev.overwhelmTriggers, value];
+      return { ...prev, overwhelmTriggers: triggers };
+    });
+  }
+
+  async function handleGenerate() {
+    setError('');
+    if (!form.ownerName.trim() || !form.ownerRole.trim()) {
+      setError('Name and role are required.');
+      return;
     }
+
+    const files = generateAll({ ...form });
+    setGenerated(files);
   }
 
-  function handleNext() {
-    const newErrors = validate(step, formData)
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors)
-      return
+  async function handleDownload() {
+    if (!generated) return;
+
+    const zip = new JSZip();
+    const agentId = Object.values(generated)[0]
+      .match(/agent_id:\s*"([^"]+)"/)?.[1] || 'agent';
+
+    const folder = zip.folder(agentId);
+    for (const [filename, content] of Object.entries(generated)) {
+      folder.file(filename, content);
     }
-    setErrors({})
-    setStep(prev => prev + 1)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-  }
 
-  function handleBack() {
-    setErrors({})
-    setStep(prev => Math.max(0, prev - 1))
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${agentId}-config.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
-
-  const isSummary = step === SECTIONS.length
-  const CurrentSection = !isSummary ? SECTIONS[step].component : null
 
   return (
-    <div
-      className="min-h-screen w-full flex flex-col items-center"
-      style={{ backgroundColor: '#0a0a0f' }}
-    >
-      <header
-        className="w-full px-6 py-4 flex items-center justify-between"
-        style={{ borderBottom: '1px solid #1f2937' }}
-      >
-        <div className="flex items-center gap-3">
-          <span
-            className="text-xs font-semibold uppercase tracking-widest"
-            style={{ color: '#5eead4', fontFamily: "'JetBrains Mono', monospace" }}
-          >
-            AIOS
-          </span>
-          <span className="text-xs" style={{ color: '#374151' }}>|</span>
-          <span className="text-xs" style={{ color: '#6b7280' }}>Staff Onboarding</span>
+    <div style={{ maxWidth: 700, margin: '2rem auto', fontFamily: 'system-ui, sans-serif' }}>
+      <h1>CHCA Agent Onboarding</h1>
+      <p>Complete this form to generate your AI agent's configuration files.</p>
+
+      <fieldset>
+        <legend>About You</legend>
+        <label>Q1 — Your name<br />
+          <input value={form.ownerName} onChange={update('ownerName')} placeholder="Dave" />
+        </label><br />
+
+        <label>Q2 — Your role<br />
+          <select value={form.ownerRole} onChange={update('ownerRole')}>
+            <option value="">Select…</option>
+            {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </label><br />
+
+        <label>Q3 — Your pronouns<br />
+          <input value={form.pronouns} onChange={update('pronouns')} placeholder="he/him, she/her, they/them" />
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Your Work Style</legend>
+        <label>Q4 — When do you have the most energy?<br />
+          <select value={form.energyPattern} onChange={update('energyPattern')}>
+            <option value="">Select…</option>
+            <option value="Morning">Morning</option>
+            <option value="Mid-morning">Mid-morning</option>
+            <option value="Afternoon">Afternoon</option>
+            <option value="Evening">Evening</option>
+            <option value="It varies">It varies</option>
+          </select>
+        </label><br />
+
+        <label>Q5 — How do you prefer to focus?<br />
+          <select value={form.focusStyle} onChange={update('focusStyle')}>
+            <option value="">Select…</option>
+            <option value="Deep blocks of uninterrupted time">Deep blocks of uninterrupted time</option>
+            <option value="Pomodoro-style intervals">Pomodoro-style intervals</option>
+            <option value="Go with the flow">Go with the flow</option>
+          </select>
+        </label><br />
+
+        <label>Q6 — What overwhelms you? (select all that apply)</label><br />
+        {OVERWHELM_OPTIONS.map((opt) => (
+          <label key={opt} style={{ display: 'block', marginLeft: '1rem' }}>
+            <input
+              type="checkbox"
+              checked={form.overwhelmTriggers.includes(opt)}
+              onChange={() => toggleOverwhelm(opt)}
+            />{' '}{opt}
+          </label>
+        ))}
+      </fieldset>
+
+      <fieldset>
+        <legend>Communication</legend>
+        <label>Q7 — How should your agent communicate?<br />
+          <select value={form.communicationStyle} onChange={update('communicationStyle')}>
+            <option value="">Select…</option>
+            <option value="Brief and direct">Brief and direct</option>
+            <option value="Detailed and thorough">Detailed and thorough</option>
+            <option value="Casual and conversational">Casual and conversational</option>
+            <option value="Formal and precise">Formal and precise</option>
+          </select>
+        </label><br />
+
+        <label>Q8 — How do you prefer information formatted?<br />
+          <select value={form.informationFormat} onChange={update('informationFormat')}>
+            <option value="">Select…</option>
+            <option value="Bullet points">Bullet points</option>
+            <option value="Prose / paragraphs">Prose / paragraphs</option>
+            <option value="Tables and comparisons">Tables and comparisons</option>
+            <option value="Mix of all">Mix of all</option>
+          </select>
+        </label><br />
+
+        <label>Q9 — How should your agent deliver bad news?<br />
+          <select value={form.badNewsApproach} onChange={update('badNewsApproach')}>
+            <option value="">Select…</option>
+            <option value="Straight and direct">Straight and direct</option>
+            <option value="Gently, with context first">Gently, with context first</option>
+            <option value="Lead with options and solutions">Lead with options and solutions</option>
+          </select>
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Your Agent</legend>
+        <label>Q10 — Name your agent (leave blank to let it choose)<br />
+          <input value={form.agentName} onChange={update('agentName')} placeholder="Optional" />
+        </label><br />
+
+        <label>Q11 — What vibe should your agent have?<br />
+          <select value={form.vibeSelection} onChange={update('vibeSelection')}>
+            <option value="">Select…</option>
+            {VIBE_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Context</legend>
+        <label>Q12 — Anything you want your agent to always remember?<br />
+          <textarea
+            value={form.rememberThis}
+            onChange={update('rememberThis')}
+            rows={3}
+            style={{ width: '100%' }}
+            placeholder="Optional — your agent will keep this in mind at all times"
+          />
+        </label><br />
+
+        <label>Q17 — What tasks eat up too much of your time right now?<br />
+          <textarea
+            value={form.currentTimeSinks}
+            onChange={update('currentTimeSinks')}
+            rows={3}
+            style={{ width: '100%' }}
+            placeholder="One per line, or write freely"
+          />
+        </label><br />
+
+        <label>Q18 — What should your agent never do?<br />
+          <textarea
+            value={form.neverDoThis}
+            onChange={update('neverDoThis')}
+            rows={3}
+            style={{ width: '100%' }}
+            placeholder="Optional — hard boundaries for your agent"
+          />
+        </label>
+      </fieldset>
+
+      {error && <p style={{ color: '#d97706' }}>{error}</p>}
+
+      <div style={{ marginTop: '1rem', display: 'flex', gap: '1rem' }}>
+        <button onClick={handleGenerate}>Generate Config Files</button>
+        {generated && <button onClick={handleDownload}>Download ZIP</button>}
+      </div>
+
+      {generated && (
+        <div style={{ marginTop: '2rem' }}>
+          <h2>Generated Files</h2>
+          {Object.entries(generated).map(([name, content]) => (
+            <details key={name} style={{ marginBottom: '1rem' }}>
+              <summary><strong>{name}</strong></summary>
+              <pre style={{
+                background: '#1a1a1a',
+                color: '#e0e0e0',
+                padding: '1rem',
+                borderRadius: '4px',
+                overflow: 'auto',
+                fontSize: '0.85rem',
+              }}>{content}</pre>
+            </details>
+          ))}
         </div>
-        {!isSummary && formData.name && (
-          <span className="text-xs" style={{ color: '#6b7280' }}>
-            Hi, {formData.name}
-          </span>
-        )}
-      </header>
-
-      <main className="w-full max-w-lg px-5 py-10 flex-1">
-        {isSummary ? (
-          <SummaryScreen formData={formData} onBack={handleBack} />
-        ) : (
-          <>
-            <ProgressBar
-              current={step + 1}
-              total={SECTIONS.length}
-              title={SECTIONS[step].title}
-            />
-            <CurrentSection
-              formData={formData}
-              onChange={handleChange}
-              errors={errors}
-            />
-
-            {Object.keys(errors).length > 0 && (
-              <p className="mt-5 text-sm" style={{ color: '#fbbf24' }}>
-                A couple of fields need attention before you continue.
-              </p>
-            )}
-
-            <div className="flex gap-3 mt-10">
-              {step > 0 && (
-                <button
-                  type="button"
-                  onClick={handleBack}
-                  className="px-5 py-2.5 rounded-md text-sm font-medium transition-colors"
-                  style={{
-                    backgroundColor: '#1f2937',
-                    color: '#9ca3af',
-                    border: '1px solid #374151',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.color = '#d1d5db' }}
-                  onMouseLeave={e => { e.currentTarget.style.color = '#9ca3af' }}
-                >
-                  ← Back
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={handleNext}
-                className="flex-1 px-5 py-2.5 rounded-md text-sm font-medium transition-colors"
-                style={{
-                  backgroundColor: '#0f766e',
-                  color: '#ccfbf1',
-                  border: '1px solid #0d9488',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#0d9488' }}
-                onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#0f766e' }}
-              >
-                {step === SECTIONS.length - 1 ? 'Review Answers →' : 'Next →'}
-              </button>
-            </div>
-          </>
-        )}
-      </main>
-
-      <footer className="w-full px-6 py-4 text-center" style={{ borderTop: '1px solid #111827' }}>
-        <p className="text-xs" style={{ color: '#374151' }}>
-          CHCA District 1199NE — AIOS Agent System
-        </p>
-      </footer>
+      )}
     </div>
-  )
+  );
 }
