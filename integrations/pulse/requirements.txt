@@ -5,9 +5,15 @@ pydantic-settings>=2.1.0
 PyJWT[crypto]>=2.8.0
 httpx>=0.26.0
 python-dotenv>=1.0.0
+# Database
 sqlalchemy>=2.0.0
 alembic>=1.13.0
 cryptography>=42.0.0
+# Background scheduler (Phase 9a — grievance deadline monitoring)
+apscheduler>=3.10.0
+# Business-day calculation (Phase 9a)
+holidays>=0.46
+# Test dependencies
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
 pytest-httpx>=0.28.0

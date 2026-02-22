@@ -1,4 +1,8 @@
-"""Alembic environment — wires SQLAlchemy models to migration engine."""
+"""Alembic environment — wires SQLAlchemy models to migration engine.
+
+Run from the repo root:
+    alembic -c integrations/pulse/alembic.ini upgrade head
+"""
 
 from __future__ import annotations
 
@@ -14,9 +18,10 @@ from sqlalchemy import engine_from_config, pool
 # ---------------------------------------------------------------------------
 from integrations.pulse.db.base import Base
 from integrations.pulse.db.models import finance, minutes  # noqa: F401
+import integrations.pulse.db.models  # noqa: F401  — registers all models on Base
 
 # ---------------------------------------------------------------------------
-# Alembic Config object (gives access to values from alembic.ini)
+# Alembic Config object
 # ---------------------------------------------------------------------------
 config = context.config
 
@@ -36,6 +41,10 @@ else:
 target_metadata = Base.metadata
 
 
+# ---------------------------------------------------------------------------
+# Migration runners
+# ---------------------------------------------------------------------------
+
 def run_migrations_offline() -> None:
     """Run migrations without a live DB connection (generates SQL script)."""
     url = config.get_main_option("sqlalchemy.url")
@@ -44,6 +53,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        render_as_batch=True,  # Required for SQLite ALTER TABLE support
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -57,7 +67,11 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            render_as_batch=True,  # Required for SQLite ALTER TABLE support
+        )
         with context.begin_transaction():
             context.run_migrations()
 

@@ -7,13 +7,15 @@ modified.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
-from typing import Any
+from datetime import date, datetime, timedelta
+from typing import Any, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
 
 from integrations.pulse.api.v1.schemas import (
     AgentContextResponse,
+    BoardContext,
     CalendarContext,
     CalendarEvent,
     CaptureRequest,
@@ -24,19 +26,130 @@ from integrations.pulse.api.v1.schemas import (
     CheckinSlotStatus,
     EmailContext,
     FinanceContext,
+    GrievanceContext,
+    GrievanceDeadlineItem,
+    NextMeetingContext,
     SchedulingContext,
     SuggestedAction,
     TaskContext,
     TaskItem,
 )
 from integrations.pulse.core.auth import get_current_user
+from integrations.pulse.core.business_days import days_until
 from integrations.pulse.core.executive_guard import sanitize_event
 from integrations.pulse.core.roles import _has_officer_role
 from integrations.pulse.core.store import checkin_store
+from integrations.pulse.db.models.board import BoardMeeting, BylawComplianceItem
+from integrations.pulse.db.models.grievance import Grievance
 from integrations.pulse.db.session import get_db
-from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
+
+# ---------------------------------------------------------------------------
+# President context helpers — grievance + board context injection
+# ---------------------------------------------------------------------------
+
+_ALERT_WINDOW_DAYS = 7
+PRESIDENT_AGENT_ID = "dave-president"
+
+
+def _claim_values(user: dict[str, Any], claim_name: str) -> set[str]:
+    """Normalize claim values that may be either a string or a list."""
+    raw = user.get(claim_name)
+    if isinstance(raw, str):
+        return {raw.lower()}
+    if isinstance(raw, list):
+        return {str(v).lower() for v in raw}
+    return set()
+
+
+def _is_president_user(user: dict[str, Any]) -> bool:
+    """Return True when the authenticated principal is the President role."""
+    if user.get("user_id") == PRESIDENT_AGENT_ID:
+        return True
+    return "president" in _claim_values(user, "roles")
+
+
+def _is_scheduler_service(user: dict[str, Any]) -> bool:
+    """Return True when JWT claims identify the scheduler service principal."""
+    roles = _claim_values(user, "roles")
+    scopes = {
+        scope.lower()
+        for scope in str(user.get("scp", "")).split()
+        if scope
+    }
+    return bool(roles.intersection({"scheduler", "service"}) or "scheduler.write" in scopes)
+
+
+def _build_grievance_context(db: Session) -> GrievanceContext:
+    """Build the grievances section of the context bundle from live DB data."""
+    open_grievances: list[Grievance] = (
+        db.query(Grievance)
+        .filter(Grievance.status.in_(["open", "pending_arbitration"]))
+        .all()
+    )
+    today = date.today()
+    approaching: list[GrievanceDeadlineItem] = []
+
+    for g in open_grievances:
+        for dtype, ddate in [
+            ("step1", g.step1_deadline),
+            ("step2", g.step2_deadline),
+            ("arbitration", g.arbitration_deadline),
+        ]:
+            remaining = days_until(ddate, today)
+            if 0 <= remaining <= _ALERT_WINDOW_DAYS:
+                approaching.append(
+                    GrievanceDeadlineItem(
+                        case_number=g.case_number,
+                        facility=g.facility,
+                        deadline_type=dtype,
+                        days_remaining=remaining,
+                        status=g.status,
+                    )
+                )
+
+    approaching.sort(key=lambda a: a.days_remaining)
+    return GrievanceContext(
+        open_count=len(open_grievances),
+        approaching_deadline=approaching,
+    )
+
+
+def _build_board_context(db: Session) -> BoardContext:
+    """Build the board section of the context bundle from live DB data."""
+    today = date.today()
+
+    next_meeting: Optional[BoardMeeting] = (
+        db.query(BoardMeeting)
+        .filter(BoardMeeting.date >= today)
+        .order_by(BoardMeeting.date.asc())
+        .first()
+    )
+
+    due_30d = today + timedelta(days=30)
+    compliance_count: int = (
+        db.query(BylawComplianceItem)
+        .filter(
+            BylawComplianceItem.next_due <= due_30d,
+            BylawComplianceItem.status != "completed",
+        )
+        .count()
+    )
+
+    next_ctx: Optional[NextMeetingContext] = None
+    if next_meeting:
+        days_away = (next_meeting.date - today).days
+        next_ctx = NextMeetingContext(
+            date=next_meeting.date.isoformat(),
+            type=next_meeting.type,
+            days_away=days_away,
+        )
+
+    return BoardContext(
+        next_meeting=next_ctx,
+        compliance_items_due_30d=compliance_count,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +231,10 @@ async def get_agent_context(
     For OFFICER role users, the response also includes role-specific context:
       - SecTreas: 'finance' section with pending co-signatures and dues arrears
       - ExecSec:  'scheduling' section with minutes drafts and pending requests
+
+    For the President agent, the response also includes:
+    - grievances: open count and approaching deadlines (within 7 days)
+    - board: next meeting and compliance items due within 30 days
     """
     owner_id: str = user["user_id"]
 
@@ -135,7 +252,7 @@ async def get_agent_context(
     task_data = _stub_tasks()
     email_data = _stub_email()
 
-    # Build officer-specific context sections
+    # Build Phase 9b officer-specific context sections
     finance_ctx: FinanceContext | None = None
     scheduling_ctx: SchedulingContext | None = None
 
@@ -151,6 +268,13 @@ async def get_agent_context(
             scheduling_ctx = SchedulingContext(**build_scheduling_context(db))
         except Exception:
             pass
+
+    # Build Phase 9a president-specific context sections
+    grievance_ctx = None
+    board_ctx = None
+    if _is_president_user(user):
+        grievance_ctx = _build_grievance_context(db)
+        board_ctx = _build_board_context(db)
 
     return AgentContextResponse(
         owner_id=owner_id,
@@ -168,6 +292,8 @@ async def get_agent_context(
         email=EmailContext(**email_data),
         finance=finance_ctx,
         scheduling=scheduling_ctx,
+        grievances=grievance_ctx,
+        board=board_ctx,
     )
 
 
@@ -182,6 +308,15 @@ async def post_agent_checkin(
 ) -> CheckinResponse:
     """Accept a morning or evening check-in from an agent."""
     owner_id: str = user["user_id"]
+    if body.agent_id != owner_id:
+        if _is_scheduler_service(user):
+            owner_id = body.agent_id
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot submit check-ins for another agent",
+            )
+
     checkin_id = checkin_store.save(owner_id, body.model_dump())
     return CheckinResponse(status="accepted", checkin_id=checkin_id)
 

@@ -46,6 +46,10 @@ class EmailContext(BaseModel):
     urgent_count: int = 0
 
 
+# ---------------------------------------------------------------------------
+# Phase 9b — Secretary/Treasurer context section
+# ---------------------------------------------------------------------------
+
 class FinanceContext(BaseModel):
     """SecTreas officer context bundle — finance section."""
     pending_cosignature_count: int = 0
@@ -61,15 +65,50 @@ class SchedulingContext(BaseModel):
     minutes_pending_approval: int = 0
 
 
+# ---------------------------------------------------------------------------
+# Phase 9a — Grievance context section — injected for President agent
+# ---------------------------------------------------------------------------
+
+class GrievanceDeadlineItem(BaseModel):
+    case_number: str
+    facility: str
+    deadline_type: str
+    days_remaining: int
+    status: str
+
+
+class GrievanceContext(BaseModel):
+    open_count: int = 0
+    approaching_deadline: list[GrievanceDeadlineItem] = []
+
+
+# ---------------------------------------------------------------------------
+# Phase 9a — Board context section — injected for President agent
+# ---------------------------------------------------------------------------
+
+class NextMeetingContext(BaseModel):
+    date: str
+    type: str
+    days_away: int
+
+
+class BoardContext(BaseModel):
+    next_meeting: Optional[NextMeetingContext] = None
+    compliance_items_due_30d: int = 0
+
+
 class AgentContextResponse(BaseModel):
     owner_id: str
     generated_at: str
     calendar: CalendarContext
     tasks: TaskContext
     email: EmailContext
-    # Officer-specific context sections (None for non-officers / wrong role)
+    # Phase 9b — Officer-specific context sections (None for non-officers / wrong role)
     finance: Optional[FinanceContext] = None
     scheduling: Optional[SchedulingContext] = None
+    # Phase 9a — President-specific context sections
+    grievances: Optional[GrievanceContext] = None
+    board: Optional[BoardContext] = None
 
 
 # ---------------------------------------------------------------------------
