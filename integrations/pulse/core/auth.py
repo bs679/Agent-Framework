@@ -131,6 +131,12 @@ async def _verify_token_production(
             detail="Invalid token",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
+    except pyjwt.PyJWKClientError as exc:
+        logger.error("Failed to fetch/resolve JWKS from %s: %s", jwks_uri, exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to fetch authentication keys",
+        ) from exc
     except httpx.HTTPError as exc:
         logger.error("Failed to fetch JWKS from %s: %s", jwks_uri, exc)
         raise HTTPException(
