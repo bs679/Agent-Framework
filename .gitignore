@@ -6,8 +6,9 @@ dist/
 build/
 .eggs/
 
-# Environment
+# Environment — never commit secrets
 .env
+agents/*/.env
 .venv/
 venv/
 
@@ -19,11 +20,28 @@ venv/
 .DS_Store
 Thumbs.db
 
-# Testing
-.pytest_cache/
+# Node
 node_modules/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
 
 # SQLite dev databases
 *.db
 *.sqlite
 *.sqlite3
+
+# Backups — large binary archives stay off git
+backups/
+
+# SSL keys — never commit private keys
+*.key
+*.pem
+nginx/ssl/
+
+# Terraform state — may contain sensitive outputs
+provisioning/terraform/*.tfstate
+provisioning/terraform/*.tfstate.backup
+provisioning/terraform/.terraform/
