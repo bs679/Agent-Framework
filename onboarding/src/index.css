@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+:root {
+  font-family: 'Inter', system-ui, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: dark;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-width: 375px;
+  min-height: 100vh;
+  background-color: #0a0a0f;
+  color: #f3f4f6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+code, .mono {
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+}
