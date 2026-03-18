@@ -12,6 +12,7 @@ psycopg2-binary>=2.9.9
 sqlalchemy[asyncio]>=2.0.0
 alembic>=1.13.0
 pgvector>=0.3.0
+cryptography>=42.0.0
 
 # Redis (Phase 10 — context caching)
 redis[asyncio]>=5.0.0

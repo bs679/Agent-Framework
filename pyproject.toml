@@ -28,6 +28,7 @@ dependencies = [
     "pgvector>=0.3",
     "redis[asyncio]>=5.0",
     "slowapi>=0.1.9",
+    "cryptography>=42.0",
 ]
 
 [project.scripts]
