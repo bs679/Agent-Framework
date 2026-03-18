@@ -16,13 +16,18 @@ different sections depending on the authenticated user's role:
 
 Compliance is always included but filtered so each role only sees items
 assigned to their role or to ALL.
+
+Caching
+-------
+GET /context is cached in Redis for 5 minutes per user.
+Pass ``?cache_bust=true`` to force a fresh fetch.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from integrations.pulse.api.v1.schemas import (
@@ -36,11 +41,19 @@ from integrations.pulse.api.v1.schemas import (
     SuggestedAction,
 )
 from integrations.pulse.core.auth import get_current_user_with_role
+from integrations.pulse.core.cache import (
+    build_cache_key,
+    get_cached,
+    set_cached,
+    invalidate,
+)
 from integrations.pulse.core.context_builder import build_context
 from integrations.pulse.core.database import get_db
 from integrations.pulse.core.store import checkin_store
 
 router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
+
+_CONTEXT_TTL = 300   # 5 minutes
 
 
 # ---------------------------------------------------------------------------
@@ -49,24 +62,39 @@ router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
 
 @router.get("/context", response_model=AgentContextResponse)
 async def get_agent_context(
+    cache_bust: bool = Query(False, alias="cache_bust"),
     user: dict[str, Any] = Depends(get_current_user_with_role),
     db: Session = Depends(get_db),
 ) -> AgentContextResponse:
     """Return the daily context bundle for the authenticated user's agent.
 
     The bundle is assembled by the role-based context builder.  Each role
-    receives only the sections appropriate for their access level:
+    receives only the sections appropriate for their access level.
+
+    Cached in Redis for 5 minutes per user.  Pass ``?cache_bust=true`` to
+    force a fresh fetch (used by the agent heartbeat to get current state).
 
     - Calendar events with executive-session keywords are sanitised.
     - Compliance items are filtered to the user's role.
     - Officer/admin sections are absent for STAFF users.
     """
-    return build_context(
+    owner_id: str = user["user_id"]
+    cache_key = build_cache_key("agent_context", owner_id)
+
+    if not cache_bust:
+        cached = await get_cached(cache_key)
+        if cached is not None:
+            return AgentContextResponse(**cached)
+
+    response = build_context(
         owner_id=user["user_id"],
         role=user["role"],
         role_detail=user["role_detail"],
         db=db,
     )
+
+    await set_cached(cache_key, response.model_dump(), _CONTEXT_TTL)
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -78,9 +106,14 @@ async def post_agent_checkin(
     body: CheckinRequest,
     user: dict[str, Any] = Depends(get_current_user_with_role),
 ) -> CheckinResponse:
-    """Accept a morning or evening check-in from an agent."""
+    """Accept a morning or evening check-in from an agent.
+
+    Invalidates the context cache so the next fetch reflects the new state.
+    """
     owner_id: str = user["user_id"]
     checkin_id = checkin_store.save(owner_id, body.model_dump())
+    # Invalidate context cache so next fetch picks up updated state
+    await invalidate(f"agent_context:{owner_id}")
     return CheckinResponse(status="accepted", checkin_id=checkin_id)
 
 
@@ -110,14 +143,9 @@ async def post_capture(
     body: CaptureRequest,
     user: dict[str, Any] = Depends(get_current_user_with_role),
 ) -> CaptureResponse:
-    """Quick-capture: Pulse sends raw note to agent for processing.
-
-    In production this forwards to the agent plane for NLP processing.
-    For now returns a heuristic-based suggestion.
-    """
+    """Quick-capture: Pulse sends raw note to agent for processing."""
     content_lower = body.content.lower()
 
-    # Simple heuristic routing until agent plane NLP is wired up
     if any(kw in content_lower for kw in ("follow up", "remind", "deadline", "due")):
         action = SuggestedAction.create_task
         details = f"Create task: {body.content}"

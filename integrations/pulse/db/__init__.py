@@ -1,1 +1,1 @@
-# Database package for Pulse agent-plane persistence layer.
+"""Database layer — PostgreSQL + pgvector via SQLAlchemy async."""
