@@ -22,6 +22,13 @@ dependencies = [
     "apscheduler>=3.10",
     "holidays>=0.46",
     "PyJWT[crypto]>=2.8",
+    # Phase 10 — Production hardening (PostgreSQL, Redis, rate limiting)
+    "asyncpg>=0.29",
+    "psycopg2-binary>=2.9.9",
+    "pgvector>=0.3",
+    "redis[asyncio]>=5.0",
+    "slowapi>=0.1.9",
+    "cryptography>=42.0",
 ]
 
 [project.scripts]

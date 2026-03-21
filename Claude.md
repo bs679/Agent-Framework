@@ -190,10 +190,10 @@ openclaw-aios/
 | 4 | Provisioning CLI (`aios planes` commands) | 🔲 Not started |
 | 5 | Docker isolation + per-agent containers | 🔲 Not started |
 | 6 | Admin dashboard | 🔲 Not started |
-| 7 | Pulse app integration | 🔲 Not started |
-| 8 | n8n workflow hooks | 🔲 Not started |
+| 7 | Pulse app integration | ✅ Complete |
+| 8 | n8n workflow hooks | ✅ Complete |
 | 9 | Officer-specific modules | 🔲 Not started |
-| 10 | Production hardening (GCP, certs, monitoring) | 🔲 Not started |
+| 10 | Production hardening (PostgreSQL, Redis, monitoring, backups, SSL, security, GCP docs) | ✅ Complete |
 
 ---
 

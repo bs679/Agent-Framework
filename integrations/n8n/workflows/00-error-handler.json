@@ -1,0 +1,68 @@
+{
+  "name": "Global Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "notes": "Receives errors from any workflow that has 'Error Workflow' set to this workflow. Set this as the Error Workflow in n8n Settings > Workflows > Error Workflow."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build a structured dead-letter event from the error context.\n// Never include execution input data (may contain sensitive content).\nconst err = $input.first().json;\nconst workflowName = err.workflow?.name || 'unknown';\nconst executionId = err.execution?.id || 'unknown';\nconst errorMsg = err.execution?.error?.message || 'Unknown error';\nconst timestamp = new Date().toISOString();\n\nreturn [{\n  json: {\n    schema_version: 'v1',\n    event: 'workflow_error',\n    workflow_name: workflowName,\n    execution_id: executionId,\n    error_message: errorMsg,\n    timestamp: timestamp,\n    // Pulse task title stays generic — no sensitive data from the error payload\n    task_title: `[n8n ERROR] ${workflowName} failed at ${timestamp.slice(0, 16).replace('T', ' ')} UTC`,\n    task_priority: 'high',\n    assigned_to: 'dave'\n  }\n}];"
+      },
+      "id": "build-dead-letter",
+      "name": "Build Dead-Letter Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [250, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PULSE_API_BASE_URL }}/api/v1/tasks",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"title\": {{ JSON.stringify($json.task_title) }},\n  \"priority\": \"high\",\n  \"assigned_to\": \"dave\",\n  \"tag\": \"n8n-error\",\n  \"metadata\": {\n    \"schema_version\": \"v1\",\n    \"workflow_name\": {{ JSON.stringify($json.workflow_name) }},\n    \"execution_id\": {{ JSON.stringify($json.execution_id) }},\n    \"error_message\": {{ JSON.stringify($json.error_message) }},\n    \"timestamp\": {{ JSON.stringify($json.timestamp) }}\n  }\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "create-error-task",
+      "name": "Create Error Task in Pulse",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [500, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "pulse-api-token",
+          "name": "Pulse API Token"
+        }
+      },
+      "notes": "Creates a high-priority task in Pulse so Dave sees the failure in the sidebar. Error details go into the task metadata — not the title — to keep titles clean."
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [[{ "node": "Build Dead-Letter Event", "type": "main", "index": 0 }]]
+    },
+    "Build Dead-Letter Event": {
+      "main": [[{ "node": "Create Error Task in Pulse", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "notes": "Set this workflow as the Error Workflow in n8n Settings > Workflows > Error Workflow. All other workflows will route failures here. The dead-letter event is written to Pulse as a high-priority task — no sensitive execution data is included."
+  }
+}

@@ -1,0 +1,75 @@
+version: "3.9"
+
+# ---------------------------------------------------------------------------
+# AIOS/Pulse — Local Docker Compose
+#
+# All secrets are loaded from .env (never hard-coded here).
+# See .env.example for required values.
+# ---------------------------------------------------------------------------
+
+services:
+
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aios_pulse}
+      POSTGRES_USER: ${POSTGRES_USER:-pulse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Bind to localhost only — not exposed to the wider network.
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pulse}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    # Bind to localhost only.
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ── Pulse API ──────────────────────────────────────────────────────────────
+  pulse:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.pulse
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+
+  # ── Agent containers (one per staff member) ────────────────────────────────
+  # Containers are managed by `aios agents` CLI, not defined statically here.
+  # See docker/Dockerfile for the agent image definition.
+
+volumes:
+  postgres_data:
+  redis_data:
