@@ -62,6 +62,36 @@ Run `watch_rfi.sh <watch_dir> <out_dir>` once by hand first to confirm it works;
 Because the output lands in the synced folder, it round-trips back to OneDrive automatically — no
 Graph write access needed.
 
+> **Headless permissions:** in unattended runs the `--allowedTools` whitelist in `watch_rfi.sh`
+> lets the pipeline's tools run without prompts. If your Claude Code version still blocks on a
+> permission prompt, add `--permission-mode bypassPermissions` to the `claude -p` call (safe in an
+> isolated box/container; it skips approval prompts).
+
+### Option B — run it in Docker (NAS / Synology friendly)
+`Dockerfile` bundles everything (poppler, tesseract, Python libs, Claude Code CLI) and runs the
+poller on an interval. Mount your synced folders and pass an API key:
+```bash
+docker build -t ems-extract -f tools/ems-schedule-extract/Dockerfile .
+docker run -d --name ems-extract --restart unless-stopped \
+  -e ANTHROPIC_API_KEY=sk-ant-... -e INTERVAL=900 \
+  -v "/volume1/OneDrive/Madison EMS/RFI Responses:/data/in:ro" \
+  -v "/volume1/OneDrive/Madison EMS:/data/out" \
+  ems-extract
+```
+On Synology you can do the same through Container Manager (build the image, then add the two folder
+mounts and the `ANTHROPIC_API_KEY` env var). Output written to `/data/out` lands in the synced
+OneDrive folder and syncs up on its own.
+
+### Option C — Desktop Commander (interactive, on the same box)
+If you'd rather drive it conversationally instead of unattended, run the
+[Desktop Commander](https://github.com/wonderwhy-er/DesktopCommanderMCP) MCP server on the machine
+and connect to it from a local Claude client (Claude Desktop / local Claude Code — a remote/web
+session can't reach a local stdio MCP). Claude then has terminal + file access on that box and can
+run `setup.sh`, invoke the extractor on a specific PDF, eyeball a flagged cell, and drop the `.xlsx`
+into the synced OneDrive folder. Same synced-folder upload path as the watcher — the difference is
+**interactive/supervised** vs. **hands-off**, plus Desktop Commander grants broad terminal+file
+access, so only use it on a machine you control.
+
 ## Dependencies
 One-time install (auto-detects apt / dnf / yum / apk / brew / opkg):
 ```bash
