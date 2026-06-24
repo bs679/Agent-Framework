@@ -48,3 +48,6 @@ nginx/ssl/
 provisioning/terraform/*.tfstate
 provisioning/terraform/*.tfstate.backup
 provisioning/terraform/.terraform/
+
+# Temporary OCR/extraction working files for EMS schedule conversion
+scratch_ems/
