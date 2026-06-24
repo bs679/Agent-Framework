@@ -49,13 +49,27 @@ inotifywait -m -e close_write -e moved_to --format '%f' "$WATCH" | while read -r
          --allowedTools Bash Read Write Edit Agent Glob
 done
 ```
-(Or poll on a `cron`/Task-Scheduler interval instead of `inotifywait`.) Because the output lands
-in the synced folder, it round-trips back to OneDrive automatically — no Graph write access needed.
+**Cron / Task-Scheduler (no inotify):** `watch_rfi.sh` polls the folder and extracts any PDF whose
+`.xlsx` is missing or older than the PDF, then exits (a `flock` prevents overlap):
+```bash
+# every 15 min
+*/15 * * * * /path/to/repo/tools/ems-schedule-extract/watch_rfi.sh \
+             "/sync/Madison EMS/RFI Responses" "/sync/Madison EMS" >/dev/null 2>&1
+```
+Run `watch_rfi.sh <watch_dir> <out_dir>` once by hand first to confirm it works; it logs to
+`<out_dir>/.extract.log`. (On Windows, point Task Scheduler at the same command via WSL/Git-Bash.)
+
+Because the output lands in the synced folder, it round-trips back to OneDrive automatically — no
+Graph write access needed.
 
 ## Dependencies
-- System: `poppler-utils` (pdftoppm), `tesseract-ocr`
-- Python: `pillow numpy pandas openpyxl`
-- Claude Code CLI (for the vision/transcription stage)
+One-time install (auto-detects apt / dnf / yum / apk / brew / opkg):
+```bash
+bash tools/ems-schedule-extract/setup.sh
+```
+It installs the system tools (`poppler-utils`, `tesseract-ocr`), the Python libs
+(`pillow numpy pandas openpyxl`), and verifies the `claude` CLI is present (needed for the
+vision/transcription stage — install separately: https://docs.claude.com/en/docs/claude-code).
 
 ## Assumptions / limits
 - Built for the Aladtec "monthly calendar, Sun–Sat columns, vehicle + crew + Time Off/Trades/Events"
