@@ -65,7 +65,8 @@ limiter = Limiter(
 # ---------------------------------------------------------------------------
 _raw_origins = os.environ.get(
     "CORS_ORIGINS",
-    "tauri://localhost,http://localhost:5173,http://localhost:3000",
+    # 5173 = Pulse frontend dev, 5174 = admin dashboard dev, 3000 = legacy dev
+    "tauri://localhost,http://localhost:5173,http://localhost:5174,http://localhost:3000",
 )
 _allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 

@@ -44,10 +44,13 @@ def container_status(container_name: str) -> str:
     )
     if rc == 0:
         return "running" if stdout.strip().lower() == "true" else "stopped"
-    if "docker not found" in stderr or "timed out" in stderr:
-        return "unavailable"
-    # docker responded but the container doesn't exist
-    return "missing"
+    # Only report "missing" when docker itself says the container doesn't
+    # exist. Anything else (CLI absent, daemon stopped, socket permission
+    # denied, timeout) means we can't know — report "unavailable" rather
+    # than claiming every agent was deleted.
+    if "no such" in stderr.lower():
+        return "missing"
+    return "unavailable"
 
 
 def container_logs(container_name: str, tail: int = 100) -> tuple[bool, list[str]]:
@@ -57,8 +60,10 @@ def container_logs(container_name: str, tail: int = 100) -> tuple[bool, list[str
     )
     if rc != 0:
         return False, [stderr or "could not read logs"]
-    # docker logs writes app output to stdout; include stderr stream too if present
-    return True, stdout.splitlines()
+    # docker logs relays the container's STDOUT and STDERR on the matching
+    # CLI streams — merge both so stderr-logging apps aren't invisible
+    lines = stdout.splitlines() + stderr.splitlines()
+    return True, lines
 
 
 def restart_container(container_name: str) -> tuple[bool, str]:
