@@ -50,6 +50,20 @@ response, and adding new staff agents.
    Look for `Backup complete:` at the end. If not present, check disk space and
    PostgreSQL container status.
 
+   Two backup jobs run nightly via cron:
+
+   ```cron
+   # PostgreSQL dump + memory tars (shell path)
+   0 2 * * * /path/to/Agent-Framework/scripts/backup.sh >> /var/log/aios-backup.log 2>&1
+   # Encrypted agent-memory backup (CLI path — set AIOS_BACKUP_KEY!)
+   15 2 * * * cd /path/to/Agent-Framework && AIOS_BACKUP_KEY=<key> aios planes backup >> /var/log/aios-backup.log 2>&1
+   ```
+
+   Generate the key once with `aios planes backup --generate-key` and store it
+   in a root-only file or secret manager — losing it makes encrypted backups
+   unreadable. Provisioning events (adds, upgrades, backups) are also appended
+   as JSON lines to `.aios/provisioning.log` for success-rate tracking.
+
 3. **Check MS Teams for monitoring alerts**
 
    The healthcheck cron runs every 5 minutes and posts to Teams on failure.

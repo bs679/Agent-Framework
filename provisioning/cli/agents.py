@@ -7,6 +7,7 @@ from pathlib import Path
 
 import click
 
+from provisioning.cli.audit import log_event
 from provisioning.cli.registry import add_agent_to_plane, list_agents
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -34,6 +35,7 @@ def add(plane, name, owner, role):
     try:
         agent = add_agent_to_plane(plane, agent_id, owner, role)
     except (KeyError, ValueError) as e:
+        log_event("agent_add", agent_id, plane=plane, ok=False, error=str(e))
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
@@ -48,6 +50,7 @@ def add(plane, name, owner, role):
     env_path = agent_dir / ".env"
     _generate_env(env_path, agent_id, owner, plane)
 
+    log_event("agent_add", agent_id, plane=plane, role=role)
     click.echo(f"Agent '{agent_id}' added to plane '{plane}'")
     click.echo(f"  Owner: {owner}")
     click.echo(f"  Role: {role}")
@@ -217,6 +220,7 @@ def upgrade(plane, agent, image):
         click.echo(f"    Waiting for health check (up to 60s)...")
         deadline = time.monotonic() + 60
         healthy = False
+        stable_since: float | None = None
         while time.monotonic() < deadline:
             new_container.reload()
             state = new_container.attrs.get("State", {})
@@ -227,11 +231,19 @@ def upgrade(plane, agent, image):
                 healthy = True
                 break
             elif health == "none" and status == "running":
-                # No HEALTHCHECK defined — running is enough
-                healthy = True
-                break
+                # No HEALTHCHECK defined — require the container to STAY
+                # running for a stability window so a crash-loop that dies
+                # seconds after start doesn't pass as upgraded
+                if stable_since is None:
+                    stable_since = time.monotonic()
+                elif time.monotonic() - stable_since >= 10:
+                    healthy = True
+                    break
             elif health in ("unhealthy",):
                 break
+            else:
+                # not running (created/restarting/exited) — reset the window
+                stable_since = None
             time.sleep(3)
 
         if healthy:
@@ -245,6 +257,15 @@ def upgrade(plane, agent, image):
             break
 
     # g. Final report
+    for r in results:
+        log_event(
+            "agent_upgrade",
+            r["agent_id"],
+            plane=plane,
+            ok=r["result"] == "upgraded",
+            error=r.get("error"),
+            image=image,
+        )
     click.echo(f"\n{'─' * 50}")
     click.echo("Upgrade summary:")
     for r in results:

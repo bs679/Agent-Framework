@@ -31,6 +31,69 @@ def create(name, project):
 
 
 @planes.command()
+@click.option("--output-dir", default=None, type=click.Path(path_type=Path),
+              help="Backup destination (default: <project>/backups)")
+@click.option("--retention-days", default=30, show_default=True,
+              help="Delete dated backup dirs older than this")
+@click.option("--generate-key", is_flag=True,
+              help="Print a new AIOS_BACKUP_KEY and exit")
+def backup(output_dir, retention_days, generate_key):
+    """Back up all agent memory volumes to a local encrypted archive.
+
+    Encrypts with the Fernet key in AIOS_BACKUP_KEY. Schedule daily via cron:
+
+        0 2 * * * cd /path/to/Agent-Framework && AIOS_BACKUP_KEY=... aios planes backup
+
+    (scripts/backup.sh covers the PostgreSQL dump separately.)
+    """
+    import os
+
+    from provisioning.cli.audit import log_event
+    from provisioning.cli.backup import run_backup
+
+    if generate_key:
+        from cryptography.fernet import Fernet
+
+        click.echo(Fernet.generate_key().decode())
+        click.echo("\nStore this as AIOS_BACKUP_KEY (secret manager or root-only file).", err=True)
+        click.echo("Losing it makes existing encrypted backups unreadable.", err=True)
+        return
+
+    key = os.environ.get("AIOS_BACKUP_KEY", "")
+    if not key:
+        click.echo("! AIOS_BACKUP_KEY not set — backups will NOT be encrypted.", err=True)
+        click.echo("  Agent memory holds sensitive union data; set a key in production.", err=True)
+        click.echo("  Generate one with: aios planes backup --generate-key\n", err=True)
+
+    try:
+        report = run_backup(
+            PROJECT_ROOT,
+            output_base=output_dir,
+            retention_days=retention_days,
+            fernet_key=key or None,
+        )
+    except Exception as exc:
+        log_event("memory_backup", ok=False, error=str(exc))
+        click.echo(f"Error: backup failed: {exc}", err=True)
+        sys.exit(1)
+
+    log_event(
+        "memory_backup",
+        ok=True,
+        agents=len(report["agents"]),
+        encrypted=report["encrypted"],
+    )
+    click.echo(f"Backup written to {report['backup_dir']}")
+    click.echo(f"  Encrypted: {'yes' if report['encrypted'] else 'NO'}")
+    for a in report["agents"]:
+        click.echo(f"  ✓ {a['agent_id']}: {a['file']} ({a['bytes']} bytes)")
+    for skipped in report["skipped"]:
+        click.echo(f"  ○ {skipped}: no memory directory, skipped")
+    if report["rotated_out"]:
+        click.echo(f"  Rotated out: {', '.join(report['rotated_out'])}")
+
+
+@planes.command()
 def status():
     """Show status of all planes, including live container state."""
     from provisioning.cli.docker_status import agent_container_name, container_status

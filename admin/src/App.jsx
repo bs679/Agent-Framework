@@ -64,8 +64,25 @@ function StatusBadge({ state }) {
   );
 }
 
-function SummaryStrip({ agents, dockerAvailable }) {
+function n8nSummary(n8n) {
+  if (!n8n || !n8n.enabled) return null;
+  if (!n8n.reachable) {
+    return { text: 'n8n: unreachable', color: '#cb6d1b' };
+  }
+  if (n8n.success_rate === null) {
+    return { text: `n8n: no finished runs (${n8n.sampled} sampled)`, color: '#9e9e9e' };
+  }
+  const pct = Math.round(n8n.success_rate * 100);
+  const finished = n8n.succeeded + n8n.failed;
+  return {
+    text: `n8n: ${pct}% success (${n8n.succeeded}/${finished})`,
+    color: pct >= 90 ? '#2e7d32' : '#b58900',
+  };
+}
+
+function SummaryStrip({ agents, dockerAvailable, n8n }) {
   const counts = summarize(agents);
+  const n8nInfo = n8nSummary(n8n);
   return (
     <div className="summary">
       <span className="summary-item" style={{ color: '#2e7d32' }}>
@@ -80,6 +97,11 @@ function SummaryStrip({ agents, dockerAvailable }) {
       <span className="summary-item dim">
         {agents.length} total agent{agents.length === 1 ? '' : 's'}
       </span>
+      {n8nInfo && (
+        <span className="summary-item" style={{ color: n8nInfo.color }}>
+          {n8nInfo.text}
+        </span>
+      )}
       {!dockerAvailable && (
         <span className="summary-item dim">○ docker unreachable from Pulse host</span>
       )}
@@ -103,6 +125,7 @@ export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) || '');
   const [agents, setAgents] = useState([]);
   const [dockerAvailable, setDockerAvailable] = useState(true);
+  const [n8n, setN8n] = useState(null);
   const [error, setError] = useState('');
   const [lastRefresh, setLastRefresh] = useState(null);
   const [logs, setLogs] = useState(null); // {agentId, lines}
@@ -117,6 +140,12 @@ export default function App() {
       setDockerAvailable(data.docker_available);
       setError('');
       setLastRefresh(new Date());
+      // n8n health is optional — never block the agent table on it
+      try {
+        setN8n(await apiFetch('/api/v1/admin/n8n/status', token));
+      } catch {
+        setN8n(null);
+      }
     } catch (e) {
       setError(String(e.message || e));
     }
@@ -186,7 +215,7 @@ export default function App() {
 
       {error && <div className="notice">{error}</div>}
 
-      <SummaryStrip agents={agents} dockerAvailable={dockerAvailable} />
+      <SummaryStrip agents={agents} dockerAvailable={dockerAvailable} n8n={n8n} />
 
       {agents.length === 0 && !error ? (
         <p className="dim">

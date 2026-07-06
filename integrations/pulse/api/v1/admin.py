@@ -339,3 +339,70 @@ async def restart_agent(
             detail=f"Restart failed: {message}",
         )
     return AgentActionResponse(agent_id=agent_id, ok=True, message=message)
+
+
+# ---------------------------------------------------------------------------
+# n8n workflow health — observability baseline (PROJECT_REVIEW P2 #10)
+# ---------------------------------------------------------------------------
+
+import os
+
+import httpx
+
+
+class N8nStatusResponse(BaseModel):
+    enabled: bool
+    reachable: bool = False
+    sampled: int = 0
+    succeeded: int = 0
+    failed: int = 0
+    success_rate: float | None = None  # over finished executions in the sample
+
+
+async def _fetch_n8n_executions(url: str, api_key: str, limit: int = 50) -> list[dict]:
+    """Fetch recent executions from the n8n public API."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            f"{url.rstrip('/')}/api/v1/executions",
+            params={"limit": limit},
+            headers={"X-N8N-API-KEY": api_key},
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+    return payload.get("data", [])
+
+
+@router.get("/n8n/status", response_model=N8nStatusResponse)
+async def n8n_status(
+    caller: dict[str, Any] = Depends(get_current_user_with_role),
+) -> N8nStatusResponse:
+    """Success rate of recent n8n workflow executions. ADMIN only.
+
+    Reads N8N_API_URL + N8N_API_KEY; reports enabled=false when unset so
+    the dashboard can hide the metric instead of erroring.
+    """
+    _require_admin(caller)
+
+    url = os.environ.get("N8N_API_URL", "")
+    api_key = os.environ.get("N8N_API_KEY", "")
+    if not url or not api_key:
+        return N8nStatusResponse(enabled=False)
+
+    try:
+        executions = await _fetch_n8n_executions(url, api_key)
+    except Exception:
+        return N8nStatusResponse(enabled=True, reachable=False)
+
+    # n8n execution status values: success | error | crashed | canceled |
+    # waiting | running — rate is computed over finished ones only
+    succeeded = sum(1 for e in executions if e.get("status") == "success")
+    failed = sum(1 for e in executions if e.get("status") in ("error", "crashed"))
+    finished = succeeded + failed
+    return N8nStatusResponse(
+        enabled=True,
+        reachable=True,
+        sampled=len(executions),
+        succeeded=succeeded,
+        failed=failed,
+        success_rate=round(succeeded / finished, 3) if finished else None,
+    )

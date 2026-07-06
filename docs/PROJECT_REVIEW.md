@@ -46,7 +46,11 @@ The PR #19–#24 merge series left several integration breaks that have now been
 - **P1 #8** — CI pipeline (now also covers the admin app).
 - **P2 #11** — ADRs written: `docs/adr/001-docker-over-gcp-vms.md`, `002-ollama-primary-claude-fallback.md`, `003-agents-plane-pattern.md`.
 
-Still open: **P1 #7** (`aios agents upgrade` rolling upgrade — the command exists; health-verify step still TODO), **P2 #9** (memory backup cron — `scripts/backup.sh` exists, cron/`aios planes backup` wiring TODO), **P2 #10** (observability baseline), production JWT validation against the CHCA Azure AD tenant, and the n8n workflow endpoint mismatches (need confirmation whether workflows target this API or a separate Pulse core service).
+- **P1 #7** — `aios agents upgrade` already had health verification (60s HEALTHCHECK/running wait with per-agent abort); a 10s stability window was added so crash-looping containers can't pass as upgraded.
+- **P2 #9** — `aios planes backup`: Fernet-encrypted agent-memory archives (key in `AIOS_BACKUP_KEY`, `--generate-key` helper), registry copy, JSON manifest, 30-day rotation; cron lines documented in `docs/runbook.md`. `scripts/backup.sh` still covers the PostgreSQL dump.
+- **P2 #10** — Observability baseline: provisioning events (agent adds, upgrades, backups) logged as JSON lines to `.aios/provisioning.log`; n8n workflow success rate surfaced in the admin dashboard via `GET /api/v1/admin/n8n/status` (reads `N8N_API_URL`/`N8N_API_KEY`, hidden when unconfigured).
+
+Still open: production JWT validation against the CHCA Azure AD tenant (+ `EXEC_SESSION_FERNET_KEY`/`AIOS_BACKUP_KEY` in the prod env), and the n8n workflow endpoint mismatches — now fully audited in `integrations/n8n/README.md` (Endpoint Audit section); needs confirmation whether workflows 01/04/05/06 target this API or a separate Pulse core service.
 
 ---
 

@@ -217,3 +217,28 @@ integrations/n8n/
     ├── 05-email-thread-intelligence.json  ← Requires X-Webhook-Secret header
     └── 06-new-member-orientation.json     ← Requires X-Webhook-Secret header
 ```
+
+---
+
+## Endpoint Audit (July 2026) — action needed before enabling workflows
+
+The workflow JSONs call Pulse API endpoints that fall into three groups.
+**Confirm whether `pulseApiBaseUrl` is meant to point at this repo's
+agent-plane API or at a separate Pulse core app before importing 01/04/05/06
+into production** — several endpoints do not exist in this repo.
+
+| Endpoint called by workflows | In this repo? | Notes |
+|---|---|---|
+| `POST /api/v1/agents/checkin` | ✅ | Works. Cross-agent posts need a scheduler service token (`roles: ["service","scheduler"]`) or an `agent_id` token claim. |
+| `GET /api/v1/grievances` | ✅ | Works (Phase 9a router). |
+| `POST /api/v1/agents/context` (workflow 01) | ⚠️ | This repo only serves `GET /context` — the context bundle is *generated* by the API, not posted to it. The workflow node likely predates the Phase 7 design; probably should be removed or repointed. |
+| `GET /api/v1/agents` (workflow 01) | ⚠️ | No public agent index here. Closest equivalent: `GET /api/v1/admin/agents` (ADMIN token required). |
+| `POST /api/v1/agents/{agent}/email-summary` (workflow 05) | ❌ | Not implemented in this repo. |
+| `/api/v1/tasks` (workflows 00/01/06 — 5 call sites) | ❌ | Not implemented here — presumed Pulse core app. Note the error-handler workflow 00 posts its dead-letter tasks here, so until this resolves, *workflow failures are silently dropped*. |
+| `/api/v1/email/summary`, `/api/v1/email/{id}/thread` (workflow 05) | ❌ | Presumed Pulse core app (MS Graph-backed). |
+| `/api/v1/reports`, `/api/v1/reports/week` (workflow 04) | ❌ | Presumed Pulse core app. |
+
+Monitoring: once n8n is running with an API key, set `N8N_API_URL` and
+`N8N_API_KEY` in the Pulse `.env` — the admin dashboard then shows the
+workflow success rate over the last 50 executions
+(`GET /api/v1/admin/n8n/status`).
