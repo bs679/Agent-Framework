@@ -175,6 +175,36 @@ def staff_client(db_session):
 
 
 @pytest.fixture()
+def agent_client(db_session):
+    """TestClient authenticated as an agent-container service principal.
+
+    Carries the ``agent_id`` token claim that authorizes check-ins for the
+    provisioned agent slug (which never matches the Azure AD user_id).
+    """
+    from integrations.pulse.app import app
+    from integrations.pulse.core.auth import get_current_user, get_current_user_with_role
+    from integrations.pulse.core.store import checkin_store
+
+    mock_user = {
+        "user_id": "svc-agent-president-dave",
+        "preferred_username": "svc-agent-president-dave",
+        "agent_id": "president-dave",
+        "role": "STAFF",
+        "role_detail": "staff",
+    }
+
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+    app.dependency_overrides[get_current_user_with_role] = lambda: mock_user
+    app.dependency_overrides[get_db] = lambda: db_session
+    checkin_store._checkins.clear()
+
+    with TestClient(app) as client:
+        yield client
+
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture()
 def scheduler_client(db_session):
     """TestClient authenticated as the scheduler service principal.
 

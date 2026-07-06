@@ -77,6 +77,16 @@ def _is_scheduler_service(user: dict[str, Any]) -> bool:
     return bool(roles.intersection({"scheduler", "service"}) or "scheduler.write" in scopes)
 
 
+def _token_authorizes_agent(user: dict[str, Any], agent_id: str) -> bool:
+    """Return True when the JWT's ``agent_id`` claim covers the given agent.
+
+    Agent-container tokens are minted with an ``agent_id`` claim carrying the
+    provisioned agent slug (e.g. ``president-dave``); the caller's Azure AD
+    ``user_id`` (email/oid) never matches that slug directly.
+    """
+    return agent_id.lower() in _claim_values(user, "agent_id")
+
+
 # ---------------------------------------------------------------------------
 # GET /api/v1/agents/context
 # ---------------------------------------------------------------------------
@@ -133,7 +143,7 @@ async def post_agent_checkin(
     """
     owner_id: str = user["user_id"]
     if body.agent_id != owner_id:
-        if _is_scheduler_service(user):
+        if _is_scheduler_service(user) or _token_authorizes_agent(user, body.agent_id):
             owner_id = body.agent_id
         else:
             raise HTTPException(

@@ -127,6 +127,20 @@ class TestCheckinEndpoint:
         resp = scheduler_client.post("/api/v1/agents/checkin", json=self._morning_checkin())
         assert resp.status_code == 200
 
+    def test_agent_token_claim_authorizes_own_slug(self, agent_client: TestClient) -> None:
+        """An agent container's token carries agent_id=president-dave, which
+        never matches its Azure user_id — the claim must authorize the post."""
+        body = self._morning_checkin()
+        body["agent_id"] = "president-dave"
+        resp = agent_client.post("/api/v1/agents/checkin", json=body)
+        assert resp.status_code == 200
+
+    def test_agent_token_claim_rejects_other_agents(self, agent_client: TestClient) -> None:
+        body = self._morning_checkin()
+        body["agent_id"] = "sectreas-agent"
+        resp = agent_client.post("/api/v1/agents/checkin", json=body)
+        assert resp.status_code == 403
+
 
 # ── GET /api/v1/agents/checkin/status ──────────────────────────────
 
