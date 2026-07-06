@@ -34,13 +34,18 @@ from integrations.pulse.api.v1.agents import router as agents_router
 # Phase 9a — President Officer Modules
 from integrations.pulse.api.v1.board import router as board_router
 from integrations.pulse.api.v1.compliance import router as compliance_router
+# Phase 9b — SecTreas + ExecSec Officer Modules
+from integrations.pulse.api.v1.finance import router as finance_router
 from integrations.pulse.api.v1.grievances import router as grievances_router
 from integrations.pulse.api.v1.health import router as health_router
 from integrations.pulse.api.v1.legislative import router as legislative_router
+from integrations.pulse.api.v1.minutes_api import router as minutes_router
 from integrations.pulse.api.v1.research import router as research_router
+from integrations.pulse.api.v1.scheduling import router as scheduling_router
 from integrations.pulse.core.config import get_settings
 from integrations.pulse.core.database import init_db
 from integrations.pulse.core.scheduler import create_scheduler
+from integrations.pulse.db.session import create_all_tables
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -70,6 +75,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize the database and start background services on startup."""
     # Phase 9c: Initialize database (create tables + seed compliance data)
     init_db()
+    # Officer-module tables (grievances, board, finance, minutes, …) live on
+    # the db/session.py stack — create those too so a fresh boot can serve them
+    create_all_tables()
 
     # Initialize AIRouter — stored on app.state so route handlers can reach it
     ai_router = AIRouter()
@@ -164,6 +172,11 @@ app.include_router(grievances_router)
 app.include_router(research_router)
 app.include_router(legislative_router)
 app.include_router(board_router)
+
+# Phase 9b — SecTreas + ExecSec Officer Module endpoints (always mounted)
+app.include_router(finance_router)
+app.include_router(minutes_router)
+app.include_router(scheduling_router)
 
 
 # ---------------------------------------------------------------------------

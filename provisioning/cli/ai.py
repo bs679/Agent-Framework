@@ -109,7 +109,7 @@ def health():
     _model_defaults = {
         "ollama": "llama3.1:8b",
         "kimi_k2": "moonshotai/kimi-k2",
-        "claude": "claude-sonnet-4-20250514",
+        "claude": "claude-sonnet-4-6",
     }
 
     for model_name, status in statuses.items():

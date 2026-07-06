@@ -191,12 +191,12 @@ class TestGenerateDraft:
         self, client_for, execsec_user, db_session
     ):
         """Minutes for an executive_session board meeting get flag=True."""
-        from integrations.pulse.db.models.minutes import BoardMeeting
-        from datetime import datetime, timezone
+        from integrations.pulse.db.models.board import BoardMeeting
+        from datetime import date
 
         bm = BoardMeeting(
             title="Executive Board Meeting",
-            meeting_date=datetime.now(timezone.utc),
+            date=date.today(),
             type="executive_session",
         )
         db_session.add(bm)

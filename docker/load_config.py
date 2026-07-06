@@ -157,18 +157,12 @@ def load_configs() -> str:
 
 
 def inject_config(system_prompt: str) -> None:
-    """Inject the combined config into OpenClaw's system prompt mechanism.
+    """Write the combined config for OpenClaw's system prompt mechanism.
 
-    OpenClaw reads system prompt context from the OPENCLAW_SYSTEM_PROMPT
-    environment variable. We also write to /app/config/system_prompt.txt
-    as a fallback for config-file-based loading.
+    The prompt is written to /app/system_prompt.txt (the config dir is
+    mounted read-only in production); entrypoint.sh reads that file and
+    exports OPENCLAW_SYSTEM_PROMPT for the OpenClaw process.
     """
-    # Set environment variable for OpenClaw
-    os.environ["OPENCLAW_SYSTEM_PROMPT"] = system_prompt
-
-    # Also write to a file that OpenClaw can pick up
-    prompt_path = os.path.join(CONFIG_DIR, "system_prompt.txt")
-    # Config dir is read-only in production; write to a writable location
     writable_prompt_path = "/app/system_prompt.txt"
     with open(writable_prompt_path, "w") as f:
         f.write(system_prompt)

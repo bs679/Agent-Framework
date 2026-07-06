@@ -1,12 +1,12 @@
 # Project Review & Improvement Plan
 
-_Updated February 2026 — reflects current implementation state across Phases 1–8._
+_Updated July 2026 — reflects current implementation state across Phases 1–10._
 
 ---
 
 ## Current Implementation Status
 
-Phases 1–8 are implemented. The following components exist and are functional:
+Phases 1–5 and 7–10 are implemented. The following components exist and are functional:
 
 | Phase | Component | Status | Key gaps |
 |-------|-----------|--------|----------|
@@ -19,8 +19,24 @@ Phases 1–8 are implemented. The following components exist and are functional:
 | 7 | Pulse ↔ agent-plane integration | ✅ Done | JWT now has explicit dev-mode guard; production JWKS path implemented |
 | 7b | Central AI router | ✅ Done | Model updated to claude-sonnet-4-6; timing telemetry added |
 | 8 | n8n workflow automation | ✅ Done | Webhook auth added; global error handler workflow added |
-| 9 | Officer-specific modules | 🔲 Not started | — |
-| 10 | Production hardening | 🔲 Not started | — |
+| 9 | Officer-specific modules (President, SecTreas, ExecSec + compliance calendar) | ✅ Done | Merged via PRs #19–#24; post-merge integration fixes applied July 2026 |
+| 10 | Production hardening (PostgreSQL, Redis, rate limiting, backups, SSL) | ✅ Done | Merged via PR #23; async pg store (`db/pg_models.py`) not yet wired to endpoints |
+
+### Post-merge integration fixes (July 2026)
+
+The PR #19–#24 merge series left several integration breaks that have now been fixed:
+
+- Duplicate `BoardMeeting` ORM model (Phase 9a `board.py` vs 9b `minutes.py`) crashed every model import — consolidated in `db/models/board.py`.
+- `db/models.py` (Phase 10 async pg models) was shadowed by the `db/models/` package — renamed to `db/pg_models.py`.
+- Phase 9b Alembic migration used revision `001` parallel to 9a's `001_phase9a` and re-created `board_meetings` — rechained as `002_phase9b`.
+- Phase 9b routers (finance, minutes, scheduling) were never mounted in `app.py` — all endpoints 404'd.
+- Check-in cross-agent ownership guard (scheduler-service exception) lost in the Phase 10 merge — restored.
+- Context-cache invalidation on check-in used a glob that never matched the stored key — fixed with exact-key delete.
+- Officer-module tables were never created at startup (`init_db()` only covered the core stack) — `create_all_tables()` now runs in the app lifespan.
+- `aios planes` command group was never registered in the CLI entry point; an orphaned parallel Typer CLI (`provisioning/cli/commands/`) was removed.
+- Orphaned parallel onboarding UI (`configGenerators.js`, `SummaryScreen.jsx`, `sections/`, `components/`) removed — `App.jsx` + `generators/` is the live path.
+- `EXEC_SESSION_FERNET_KEY` is now required outside dev mode (fail-fast instead of ephemeral per-worker keys).
+- CI pipeline added (`.github/workflows/ci.yml`): ruff + pytest + vitest + build.
 
 ---
 

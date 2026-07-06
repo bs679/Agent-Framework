@@ -90,6 +90,17 @@ async def set_cached(key: str, value: Any, ttl: int) -> None:
         logger.debug("Redis set failed for key=%s: %s", key, exc)
 
 
+async def delete_cached(key: str) -> None:
+    """Delete a single exact cache key."""
+    client = _get_redis()
+    if client is None:
+        return
+    try:
+        await client.delete(key)
+    except Exception as exc:
+        logger.debug("Redis delete failed for key=%s: %s", key, exc)
+
+
 async def invalidate(prefix: str) -> None:
     """Delete all keys matching ``prefix:*``."""
     client = _get_redis()

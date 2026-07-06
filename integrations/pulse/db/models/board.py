@@ -22,6 +22,7 @@ class BoardMeeting(Base):
     __tablename__ = "board_meetings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     location: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
 

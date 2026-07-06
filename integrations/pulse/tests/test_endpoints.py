@@ -69,16 +69,10 @@ class TestContextEndpoint:
         assert "urgent_count" in email
 
 
-    def test_non_president_context_omits_officer_sections(self, client: TestClient) -> None:
-        def _staff_user() -> dict:
-            return {"user_id": "staff-1", "preferred_username": "staff-1", "roles": ["staff"]}
-
-        app.dependency_overrides[get_current_user] = _staff_user
-        data = client.get("/api/v1/agents/context").json()
+    def test_non_president_context_omits_officer_sections(self, staff_client: TestClient) -> None:
+        data = staff_client.get("/api/v1/agents/context").json()
         assert data["grievances"] is None
         assert data["board"] is None
-
-        app.dependency_overrides[get_current_user] = _mock_user
 
 
 # ── POST /api/v1/agents/checkin ────────────────────────────────────
@@ -86,7 +80,7 @@ class TestContextEndpoint:
 class TestCheckinEndpoint:
     def _morning_checkin(self) -> dict:
         return {
-            "agent_id": "president-dave-a3f2",
+            "agent_id": "dave@chca.org",
             "checkin_type": "morning",
             "timestamp": "2026-02-21T07:02:00Z",
             "summary": "Good morning. 3 tasks due today, 1 overdue.",
@@ -108,7 +102,7 @@ class TestCheckinEndpoint:
 
     def test_accepts_evening_checkin(self, admin_client: TestClient) -> None:
         body = {
-            "agent_id": "president-dave-a3f2",
+            "agent_id": "dave@chca.org",
             "checkin_type": "evening",
             "timestamp": "2026-02-21T17:00:00Z",
             "summary": "End of day. All tasks addressed.",
@@ -124,29 +118,28 @@ class TestCheckinEndpoint:
         assert resp.status_code == 422
 
 
-    def test_rejects_cross_agent_checkin_for_non_service_token(self, client: TestClient) -> None:
-        def _staff_user() -> dict:
-            return {"user_id": "staff-1", "preferred_username": "staff-1", "roles": ["staff"]}
-
-        app.dependency_overrides[get_current_user] = _staff_user
-        resp = client.post("/api/v1/agents/checkin", json=self._morning_checkin())
+    def test_rejects_cross_agent_checkin_for_non_service_token(self, staff_client: TestClient) -> None:
+        # staff4 posting a check-in for Dave's agent must be rejected
+        resp = staff_client.post("/api/v1/agents/checkin", json=self._morning_checkin())
         assert resp.status_code == 403
 
-        app.dependency_overrides[get_current_user] = _mock_user
-
-    def test_allows_scheduler_service_to_post_for_president(self, client: TestClient) -> None:
-        def _scheduler_user() -> dict:
-            return {
-                "user_id": "svc-scheduler",
-                "preferred_username": "svc-scheduler",
-                "roles": ["service", "scheduler"],
-            }
-
-        app.dependency_overrides[get_current_user] = _scheduler_user
-        resp = client.post("/api/v1/agents/checkin", json=self._morning_checkin())
+    def test_allows_scheduler_service_to_post_for_president(self, scheduler_client: TestClient) -> None:
+        resp = scheduler_client.post("/api/v1/agents/checkin", json=self._morning_checkin())
         assert resp.status_code == 200
 
-        app.dependency_overrides[get_current_user] = _mock_user
+    def test_agent_token_claim_authorizes_own_slug(self, agent_client: TestClient) -> None:
+        """An agent container's token carries agent_id=president-dave, which
+        never matches its Azure user_id — the claim must authorize the post."""
+        body = self._morning_checkin()
+        body["agent_id"] = "president-dave"
+        resp = agent_client.post("/api/v1/agents/checkin", json=body)
+        assert resp.status_code == 200
+
+    def test_agent_token_claim_rejects_other_agents(self, agent_client: TestClient) -> None:
+        body = self._morning_checkin()
+        body["agent_id"] = "sectreas-agent"
+        resp = agent_client.post("/api/v1/agents/checkin", json=body)
+        assert resp.status_code == 403
 
 
 # ── GET /api/v1/agents/checkin/status ──────────────────────────────
@@ -161,7 +154,7 @@ class TestCheckinStatusEndpoint:
         admin_client.post(
             "/api/v1/agents/checkin",
             json={
-                "agent_id": "president-dave-a3f2",
+                "agent_id": "dave@chca.org",
                 "checkin_type": "morning",
                 "timestamp": "2026-02-21T07:02:00Z",
                 "summary": "Morning check-in.",
@@ -177,7 +170,7 @@ class TestCheckinStatusEndpoint:
         admin_client.post(
             "/api/v1/agents/checkin",
             json={
-                "agent_id": "president-dave-a3f2",
+                "agent_id": "dave@chca.org",
                 "checkin_type": "morning",
                 "timestamp": "2026-02-21T07:02:00Z",
                 "summary": "AM",
@@ -187,7 +180,7 @@ class TestCheckinStatusEndpoint:
         admin_client.post(
             "/api/v1/agents/checkin",
             json={
-                "agent_id": "president-dave-a3f2",
+                "agent_id": "dave@chca.org",
                 "checkin_type": "evening",
                 "timestamp": "2026-02-21T17:05:00Z",
                 "summary": "PM",
@@ -205,7 +198,7 @@ class TestCheckinStatusEndpoint:
 class TestCaptureEndpoint:
     def test_task_suggestion(self, admin_client: TestClient) -> None:
         body = {
-            "agent_id": "president-dave-a3f2",
+            "agent_id": "dave@chca.org",
             "content": "Follow up with Waterbury steward about grievance",
             "context": "manual",
         }
@@ -216,7 +209,7 @@ class TestCaptureEndpoint:
 
     def test_email_suggestion(self, admin_client: TestClient) -> None:
         body = {
-            "agent_id": "president-dave-a3f2",
+            "agent_id": "dave@chca.org",
             "content": "Reply to the steward's email about scheduling",
             "context": "email",
         }
@@ -226,7 +219,7 @@ class TestCaptureEndpoint:
 
     def test_memory_suggestion(self, admin_client: TestClient) -> None:
         body = {
-            "agent_id": "president-dave-a3f2",
+            "agent_id": "dave@chca.org",
             "content": "Remember that next meeting is on Tuesday",
             "context": "manual",
         }
@@ -236,7 +229,7 @@ class TestCaptureEndpoint:
 
     def test_flag_for_review_fallback(self, admin_client: TestClient) -> None:
         body = {
-            "agent_id": "president-dave-a3f2",
+            "agent_id": "dave@chca.org",
             "content": "Interesting article about healthcare trends",
             "context": "manual",
         }
@@ -246,7 +239,7 @@ class TestCaptureEndpoint:
 
     def test_rejects_invalid_context(self, admin_client: TestClient) -> None:
         body = {
-            "agent_id": "president-dave-a3f2",
+            "agent_id": "dave@chca.org",
             "content": "test",
             "context": "invalid",
         }
@@ -255,7 +248,7 @@ class TestCaptureEndpoint:
 
     def test_response_has_details(self, admin_client: TestClient) -> None:
         body = {
-            "agent_id": "president-dave-a3f2",
+            "agent_id": "dave@chca.org",
             "content": "Follow up with Waterbury steward",
             "context": "manual",
         }

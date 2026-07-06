@@ -1,4 +1,8 @@
-"""SQLAlchemy ORM models for Pulse.
+"""SQLAlchemy ORM models for the async PostgreSQL store (Phase 10).
+
+Separate from the sync officer-module models in ``db/models/`` — these use
+their own DeclarativeBase and the async engine in ``db/engine.py``, and are
+migrated via ``integrations/pulse/migrations`` (root ``alembic.ini``).
 
 Tables
 ------

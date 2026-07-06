@@ -255,6 +255,7 @@ async def finance_dashboard(
         "fiscal_year": _CURRENT_FISCAL_YEAR,
         "ytd_disbursements": round(ytd_total, 2),
         "budget_remaining": round(budget_remaining, 2),
+        "budget_variance_alert": budget_variance_alert,
         "pending_disbursements": len(pending),
         "dues_arrears_count": arrears_count,
         "budget_lines": budget_line_out,

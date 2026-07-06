@@ -43,9 +43,9 @@ from integrations.pulse.api.v1.schemas import (
 from integrations.pulse.core.auth import get_current_user_with_role
 from integrations.pulse.core.cache import (
     build_cache_key,
+    delete_cached,
     get_cached,
     set_cached,
-    invalidate,
 )
 from integrations.pulse.core.context_builder import build_context
 from integrations.pulse.core.database import get_db
@@ -54,6 +54,37 @@ from integrations.pulse.core.store import checkin_store
 router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
 
 _CONTEXT_TTL = 300   # 5 minutes
+
+
+def _claim_values(user: dict[str, Any], claim_name: str) -> set[str]:
+    """Normalize claim values that may be either a string or a list."""
+    raw = user.get(claim_name)
+    if isinstance(raw, str):
+        return {raw.lower()}
+    if isinstance(raw, list):
+        return {str(v).lower() for v in raw}
+    return set()
+
+
+def _is_scheduler_service(user: dict[str, Any]) -> bool:
+    """Return True when JWT claims identify the scheduler service principal."""
+    roles = _claim_values(user, "roles")
+    scopes = {
+        scope.lower()
+        for scope in str(user.get("scp", "")).split()
+        if scope
+    }
+    return bool(roles.intersection({"scheduler", "service"}) or "scheduler.write" in scopes)
+
+
+def _token_authorizes_agent(user: dict[str, Any], agent_id: str) -> bool:
+    """Return True when the JWT's ``agent_id`` claim covers the given agent.
+
+    Agent-container tokens are minted with an ``agent_id`` claim carrying the
+    provisioned agent slug (e.g. ``president-dave``); the caller's Azure AD
+    ``user_id`` (email/oid) never matches that slug directly.
+    """
+    return agent_id.lower() in _claim_values(user, "agent_id")
 
 
 # ---------------------------------------------------------------------------
@@ -111,9 +142,18 @@ async def post_agent_checkin(
     Invalidates the context cache so the next fetch reflects the new state.
     """
     owner_id: str = user["user_id"]
+    if body.agent_id != owner_id:
+        if _is_scheduler_service(user) or _token_authorizes_agent(user, body.agent_id):
+            owner_id = body.agent_id
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot submit check-ins for another agent",
+            )
+
     checkin_id = checkin_store.save(owner_id, body.model_dump())
     # Invalidate context cache so next fetch picks up updated state
-    await invalidate(f"agent_context:{owner_id}")
+    await delete_cached(build_cache_key("agent_context", owner_id))
     return CheckinResponse(status="accepted", checkin_id=checkin_id)
 
 

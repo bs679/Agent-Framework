@@ -7,7 +7,7 @@ from pathlib import Path
 
 import click
 
-from provisioning.cli.registry import add_agent_to_plane, get_plane, list_agents
+from provisioning.cli.registry import add_agent_to_plane, list_agents
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -78,7 +78,7 @@ def list_cmd(plane):
 @agents.command("upgrade")
 @click.option("--plane", required=True, help="Plane containing the agents")
 @click.option("--agent", default=None, help="Upgrade a single agent by ID (omit for all)")
-@click.option("--image", default="openclaw/openclaw:latest", show_default=True,
+@click.option("--image", default="chca/openclaw-aios:latest", show_default=True,
               help="Docker image to upgrade to")
 def upgrade(plane, agent, image):
     """Rolling upgrade: pull latest image and recreate agent containers.
@@ -183,6 +183,8 @@ def upgrade(plane, agent, image):
             "AGENT_ID": agent_id,
             "PLANE_NAME": plane,
             "OLLAMA_HOST": "host.docker.internal:11434",
+            # AIRouter reads OLLAMA_BASE_URL — keep both names pointing at the host
+            "OLLAMA_BASE_URL": "http://host.docker.internal:11434",
         }
         if env_path.exists():
             env_vars.update(_parse_env_file(env_path))
@@ -300,6 +302,7 @@ PLANE_NAME={plane_name}
 
 # AI backends
 OLLAMA_HOST=host.docker.internal:11434
+OLLAMA_BASE_URL=http://host.docker.internal:11434
 OLLAMA_MODEL=llama3.1:8b
 ANTHROPIC_API_KEY=
 AI_FALLBACK_TO_API=false
