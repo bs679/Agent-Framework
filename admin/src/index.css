@@ -1,0 +1,179 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  line-height: 1.5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 1.5rem;
+  background: #fafaf7;
+  color: #24292f;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #16181d;
+    color: #d5d9de;
+  }
+}
+
+.dashboard,
+.token-gate {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+h1 {
+  font-size: 1.35rem;
+  margin: 0 0 0.75rem;
+}
+
+.header-right {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+button {
+  font: inherit;
+  padding: 0.3rem 0.8rem;
+  border: 1px solid #8886;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #8882;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+input {
+  font: inherit;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #8886;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  min-width: 20rem;
+}
+
+.token-gate form {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.summary {
+  display: flex;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 0;
+  margin-bottom: 0.5rem;
+}
+
+.summary-item {
+  font-weight: 600;
+}
+
+.dim {
+  opacity: 0.6;
+  font-weight: 400;
+}
+
+.notice {
+  border: 1px solid #b58900;
+  color: #b58900;
+  border-radius: 6px;
+  padding: 0.5rem 0.8rem;
+  margin: 0.5rem 0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.5rem 0.65rem;
+  border-bottom: 1px solid #8883;
+}
+
+th {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+
+.mono {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.88rem;
+}
+
+.badge {
+  border: 1px solid;
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.logs-panel {
+  margin-top: 1.25rem;
+  border: 1px solid #8885;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.logs-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 0.8rem;
+  border-bottom: 1px solid #8885;
+}
+
+.logs-panel pre {
+  margin: 0;
+  padding: 0.8rem;
+  max-height: 24rem;
+  overflow: auto;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+code {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.88em;
+  background: #8882;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
