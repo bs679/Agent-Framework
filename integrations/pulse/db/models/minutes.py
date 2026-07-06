@@ -1,9 +1,12 @@
 """ORM models for Executive Secretary minutes workflow.
 
 Tables:
-  - board_meetings     Executive board meeting records (Phase 9a prerequisite)
   - meeting_minutes    Minutes lifecycle with executive-session encryption
   - pulse_tasks        Lightweight task store for cross-role notifications
+
+The board_meetings table is owned by Phase 9a (President module) — see
+``integrations.pulse.db.models.board.BoardMeeting``, re-exported here for
+callers that historically imported it from this module.
 """
 
 from __future__ import annotations
@@ -14,24 +17,7 @@ from sqlalchemy import Boolean, DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from integrations.pulse.db.base import Base
-
-
-class BoardMeeting(Base):
-    """Executive board meeting record.
-
-    Created by Phase 9a (President module). Defined here as a prerequisite
-    so Phase 9b minutes FK works in test and dev environments.
-    """
-
-    __tablename__ = "board_meetings"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    title: Mapped[str] = mapped_column(String(255), nullable=False)
-    meeting_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    # regular | executive_session
-    type: Mapped[str] = mapped_column(String(50), nullable=False, default="regular")
-    location: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+from integrations.pulse.db.models.board import BoardMeeting  # noqa: F401
 
 
 class MeetingMinutes(Base):

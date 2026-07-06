@@ -2,6 +2,7 @@
 
 Usage:
     from integrations.pulse.db.engine import get_session
+    from integrations.pulse.db.pg_models import CheckIn
 
     async with get_session() as session:
         result = await session.execute(select(CheckIn))

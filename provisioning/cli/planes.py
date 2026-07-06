@@ -96,6 +96,7 @@ def _build_compose(plane_name: str, agents: dict) -> dict:
                 f"AGENT_ID={agent_id}",
                 f"PLANE_NAME={plane_name}",
                 "OLLAMA_HOST=host.docker.internal:11434",
+                "OLLAMA_BASE_URL=http://host.docker.internal:11434",
             ],
             "extra_hosts": ["host.docker.internal:host-gateway"],
             "deploy": {

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Generator
+from datetime import date
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -243,10 +244,8 @@ def _seed_compliance_items(db: Session) -> None:
     db.commit()
 
 
-def _next_quarter_date(today) -> "date":
+def _next_quarter_date(today) -> date:
     """Return the first day of the next calendar quarter."""
-    from datetime import date
-
     quarter_starts = [1, 4, 7, 10]
     for month in quarter_starts:
         if today.month < month:
@@ -254,10 +253,8 @@ def _next_quarter_date(today) -> "date":
     return date(today.year + 1, 1, 1)
 
 
-def _next_semiannual_date(today) -> "date":
+def _next_semiannual_date(today) -> date:
     """Return next semi-annual meeting date (May 1 or October 1)."""
-    from datetime import date
-
     if today.month < 5:
         return date(today.year, 5, 1)
     if today.month < 10:

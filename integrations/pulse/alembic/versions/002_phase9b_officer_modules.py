@@ -1,7 +1,7 @@
 """Phase 9b — Secretary/Treasurer + Executive Secretary officer module tables.
 
-Revision ID: 001
-Revises: (initial)
+Revision ID: 002_phase9b
+Revises: 001_phase9a
 Create Date: 2026-02-22
 """
 
@@ -10,24 +10,18 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "001"
-down_revision = None
+revision = "002_phase9b"
+down_revision = "001_phase9a"
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
     # -----------------------------------------------------------------------
-    # board_meetings — prerequisite from Phase 9a (President module)
+    # board_meetings — created by Phase 9a; add the title column minutes use
     # -----------------------------------------------------------------------
-    op.create_table(
-        "board_meetings",
-        sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
-        sa.Column("title", sa.String(255), nullable=False),
-        sa.Column("meeting_date", sa.DateTime, nullable=False),
-        sa.Column("type", sa.String(50), nullable=False, server_default="regular"),
-        sa.Column("location", sa.String(255), nullable=True),
-        sa.Column("notes", sa.Text, nullable=True),
+    op.add_column(
+        "board_meetings", sa.Column("title", sa.String(255), nullable=True)
     )
 
     # -----------------------------------------------------------------------
@@ -135,4 +129,4 @@ def downgrade() -> None:
     op.drop_table("dues_remittances")
     op.drop_table("budget_lines")
     op.drop_table("disbursements")
-    op.drop_table("board_meetings")
+    op.drop_column("board_meetings", "title")

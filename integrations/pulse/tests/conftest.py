@@ -21,6 +21,12 @@ os.environ.setdefault(
     "executive session,exec session,board executive",
 )
 
+# Stable Fernet key so exec-session encryption works outside dev mode
+os.environ.setdefault(
+    "EXEC_SESSION_FERNET_KEY",
+    "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+)
+
 # Use in-memory SQLite for tests — completely isolated, no file state
 TEST_DATABASE_URL = "sqlite:///:memory:"
 
@@ -153,6 +159,36 @@ def staff_client(db_session):
     mock_user = {
         "user_id": "staff4@chca.org",
         "preferred_username": "staff4@chca.org",
+        "role": "STAFF",
+        "role_detail": "staff",
+    }
+
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+    app.dependency_overrides[get_current_user_with_role] = lambda: mock_user
+    app.dependency_overrides[get_db] = lambda: db_session
+    checkin_store._checkins.clear()
+
+    with TestClient(app) as client:
+        yield client
+
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture()
+def scheduler_client(db_session):
+    """TestClient authenticated as the scheduler service principal.
+
+    Carries the raw ``roles`` token claim the check-in ownership guard
+    inspects, allowing it to post check-ins on behalf of any agent.
+    """
+    from integrations.pulse.app import app
+    from integrations.pulse.core.auth import get_current_user, get_current_user_with_role
+    from integrations.pulse.core.store import checkin_store
+
+    mock_user = {
+        "user_id": "svc-scheduler",
+        "preferred_username": "svc-scheduler",
+        "roles": ["service", "scheduler"],
         "role": "STAFF",
         "role_detail": "staff",
     }

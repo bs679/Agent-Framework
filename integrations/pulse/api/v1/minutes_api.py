@@ -23,7 +23,7 @@ import base64
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -48,7 +48,10 @@ _EXEC_SESSION_FERNET_KEY_ENV = "EXEC_SESSION_FERNET_KEY"
 # Process-level cache: generated once per process start if env var not set.
 # Ensures encrypt/decrypt use the same key within a running process.
 # Production MUST set EXEC_SESSION_FERNET_KEY so the key survives restarts.
-_fernet_instance: "Fernet | None" = None  # type: ignore[name-defined]
+if TYPE_CHECKING:
+    from cryptography.fernet import Fernet
+
+_fernet_instance: "Fernet | None" = None
 
 
 def _get_fernet():
@@ -72,6 +75,14 @@ def _get_fernet():
 
     key_b64 = os.environ.get(_EXEC_SESSION_FERNET_KEY_ENV, "")
     if not key_b64:
+        dev_mode = os.environ.get("PULSE_DEV_MODE", "").lower() in ("true", "1", "yes")
+        if not dev_mode:
+            raise RuntimeError(
+                "EXEC_SESSION_FERNET_KEY must be set outside dev mode — an "
+                "ephemeral key cannot decrypt minutes across workers or restarts. "
+                "Generate one with: python -c \"from cryptography.fernet import "
+                "Fernet; print(Fernet.generate_key().decode())\""
+            )
         logger.warning(
             "EXEC_SESSION_FERNET_KEY not set — using ephemeral key. "
             "Set this env var in production so encrypted minutes survive restarts."

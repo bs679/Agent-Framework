@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python-tests:
+    name: Python tests (Pulse + provisioning)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          pip install -e .
+          pip install pytest ruff
+      - name: Lint (syntax errors and undefined names)
+        run: ruff check --select E9,F63,F7,F82 .
+      - name: Run pytest
+        run: python -m pytest integrations/pulse/tests/ -q
+      - name: Verify CLI entry point
+        run: python -m provisioning.cli.main --help
+
+  onboarding-tests:
+    name: Onboarding generators (vitest + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: onboarding
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: onboarding/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Run vitest
+        run: npm test
+      - name: Build
+        run: npm run build

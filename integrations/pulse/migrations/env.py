@@ -13,7 +13,7 @@ from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
 
 # Import models so Alembic can detect schema changes
-from integrations.pulse.db.models import Base  # noqa: F401
+from integrations.pulse.db.pg_models import Base  # noqa: F401
 
 # Alembic Config object
 config = context.config

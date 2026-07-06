@@ -2,6 +2,9 @@
 aios CLI — top-level entry point.
 
 Usage:
+    aios planes create chca-agents
+    aios planes list
+    aios planes status chca-agents
     aios agents add --plane chca-agents --name president-dave --owner dave@chca.org
     aios agents list --plane chca-agents
     aios agents upgrade --plane chca-agents
@@ -15,6 +18,7 @@ import click
 
 from provisioning.cli.agents import agents
 from provisioning.cli.ai import ai_group
+from provisioning.cli.planes import planes
 
 
 @click.group()
@@ -23,6 +27,7 @@ def cli():
     pass
 
 
+cli.add_command(planes, name="planes")
 cli.add_command(agents, name="agents")
 cli.add_command(ai_group, name="ai")
 

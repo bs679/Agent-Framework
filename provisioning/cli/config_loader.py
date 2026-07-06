@@ -145,37 +145,40 @@ def get_non_private_config(config_path: str) -> dict | None:
     if identity:
         result["agent_id"] = identity.get("agent_id")
         result["agent_name"] = identity.get("agent_name")
-        result["persona"] = identity.get("persona")
+        result["avatar_description"] = identity.get("avatar_description")
+        result["role_definition"] = identity.get("role_definition")
 
-    # SOUL.md — personality and tone only
+    # SOUL.md — personality and communication style only
     soul = parse_frontmatter(config_dir / "SOUL.md")
     if soul:
-        result["personality"] = soul.get("personality")
-        result["tone"] = soul.get("tone")
+        result["personality_traits"] = soul.get("personality_traits")
+        result["communication_style"] = soul.get("communication_style")
 
-    # USER.md — owner info, energy peak, format preference (NOT pronouns, NOT overwhelm_triggers)
+    # USER.md — owner info, energy pattern, format preference (NOT pronouns, NOT overwhelm_triggers)
     user = parse_frontmatter(config_dir / "USER.md")
     if user:
         result["owner_name"] = user.get("owner_name")
         result["owner_role"] = user.get("owner_role")
-        result["energy_peak"] = user.get("energy_peak")
-        result["format_preference"] = user.get("format_preference")
+        result["energy_pattern"] = user.get("energy_pattern")
+        result["information_format"] = user.get("information_format")
 
     # AGENTS.md — collaboration info
     agents = parse_frontmatter(config_dir / "AGENTS.md")
     if agents:
         result["collaborates_with"] = agents.get("collaborates_with")
-        result["role_in_plane"] = agents.get("role_in_plane")
+        result["plane_name"] = agents.get("plane_name")
 
     # HEARTBEAT.md — check-in times
     heartbeat = parse_frontmatter(config_dir / "HEARTBEAT.md")
     if heartbeat:
-        result["check_in_times"] = heartbeat.get("check_in_times")
+        result["morning_checkin_time"] = heartbeat.get("morning_checkin_time")
+        result["evening_checkin_time"] = heartbeat.get("evening_checkin_time")
 
     # MEMORY.md — retention settings only (NOT contents)
     memory = parse_frontmatter(config_dir / "MEMORY.md")
     if memory:
-        result["retention_days"] = memory.get("retention_days")
+        result["retention_days_short"] = memory.get("retention_days_short")
+        result["retention_days_long"] = memory.get("retention_days_long")
         result["sensitive_categories"] = memory.get("sensitive_categories")
 
     return result
