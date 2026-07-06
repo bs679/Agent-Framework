@@ -15,7 +15,7 @@ Phases 1–5 and 7–10 are implemented. The following components exist and are 
 | 3 | Config generators (6 files per agent) | ✅ Done | No golden-file snapshot tests yet |
 | 4 | `aios` CLI (planes + agents) | ✅ Done | `status` shows registry only, not live Docker state |
 | 5 | Docker isolation, per-agent containers | ✅ Done | Dockerfile now runs non-root; schema validation at startup added |
-| 6 | Admin dashboard | 🔲 Not started | — |
+| 6 | Admin dashboard (React app in `admin/` + `/api/v1/admin/agents*` endpoints) | ✅ Done | Agent list w/ live Docker state, heartbeats, logs, restart (July 2026) |
 | 7 | Pulse ↔ agent-plane integration | ✅ Done | JWT now has explicit dev-mode guard; production JWKS path implemented |
 | 7b | Central AI router | ✅ Done | Model updated to claude-sonnet-4-6; timing telemetry added |
 | 8 | n8n workflow automation | ✅ Done | Webhook auth added; global error handler workflow added |
@@ -37,6 +37,16 @@ The PR #19–#24 merge series left several integration breaks that have now been
 - Orphaned parallel onboarding UI (`configGenerators.js`, `SummaryScreen.jsx`, `sections/`, `components/`) removed — `App.jsx` + `generators/` is the live path.
 - `EXEC_SESSION_FERNET_KEY` is now required outside dev mode (fail-fast instead of ephemeral per-worker keys).
 - CI pipeline added (`.github/workflows/ci.yml`): ruff + pytest + vitest + build.
+
+### Roadmap items completed (July 2026)
+
+- **P0 #1 / P1 #5** — Golden-file snapshot tests for all 6 generators across all 3 role classes (President / SecTreas / standard staff): `onboarding/src/generators/__tests__/snapshots.test.js`.
+- **P0 #2** — `aios planes status` now reports live Docker container state (running/stopped/missing/unavailable) via the shared `provisioning/cli/docker_status.py` helper.
+- **P1 #6** — Phase 6 admin dashboard: `GET /api/v1/admin/agents` (registry + container state + morning/evening heartbeats), `GET .../logs`, `POST .../restart` (ADMIN-only, registered agents only), with the React frontend in `admin/`.
+- **P1 #8** — CI pipeline (now also covers the admin app).
+- **P2 #11** — ADRs written: `docs/adr/001-docker-over-gcp-vms.md`, `002-ollama-primary-claude-fallback.md`, `003-agents-plane-pattern.md`.
+
+Still open: **P1 #7** (`aios agents upgrade` rolling upgrade — the command exists; health-verify step still TODO), **P2 #9** (memory backup cron — `scripts/backup.sh` exists, cron/`aios planes backup` wiring TODO), **P2 #10** (observability baseline), production JWT validation against the CHCA Azure AD tenant, and the n8n workflow endpoint mismatches (need confirmation whether workflows target this API or a separate Pulse core service).
 
 ---
 

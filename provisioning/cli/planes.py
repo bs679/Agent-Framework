@@ -1,15 +1,12 @@
 """aios planes — subcommands for managing agent planes."""
 
-import json
-import os
-import subprocess
 import sys
 from pathlib import Path
 
 import click
 import yaml
 
-from provisioning.cli.registry import create_plane, get_plane, list_agents, list_planes
+from provisioning.cli.registry import create_plane, get_plane, list_planes
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -35,16 +32,25 @@ def create(name, project):
 
 @planes.command()
 def status():
-    """Show status of all planes."""
+    """Show status of all planes, including live container state."""
+    from provisioning.cli.docker_status import agent_container_name, container_status
+
     all_planes = list_planes()
     if not all_planes:
         click.echo("No planes registered.")
         return
+    # Status marks per cross-cutting rules: green check / yellow ~ / orange ! / dim o
+    marks = {"running": "✓", "stopped": "~", "missing": "!", "unavailable": "○"}
     for name, plane in all_planes.items():
         agent_count = len(plane.get("agents", {}))
         click.echo(f"  {name}: {agent_count} agent(s)")
         for agent_id, agent in plane.get("agents", {}).items():
-            click.echo(f"    - {agent_id} (owner={agent['owner']}, role={agent['role']})")
+            state = container_status(agent_container_name(agent_id))
+            mark = marks.get(state, "○")
+            click.echo(
+                f"    {mark} {agent_id} [{state}] "
+                f"(owner={agent['owner']}, role={agent['role']})"
+            )
 
 
 @planes.command()
@@ -234,28 +240,12 @@ def verify_isolation(plane):
         sys.exit(1)
 
 
-def _run_docker(args: list[str], timeout: int = 10) -> tuple[int, str, str]:
-    """Run a docker command and return (returncode, stdout, stderr)."""
-    try:
-        result = subprocess.run(
-            ["docker"] + args,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        return result.returncode, result.stdout.strip(), result.stderr.strip()
-    except subprocess.TimeoutExpired:
-        return 1, "", "Command timed out"
-    except FileNotFoundError:
-        return 1, "", "docker not found — is Docker installed?"
+from provisioning.cli.docker_status import container_status, run_docker as _run_docker
 
 
 def _is_container_running(container_name: str) -> bool:
     """Check if a Docker container is running."""
-    rc, stdout, _ = _run_docker([
-        "inspect", "--format", "{{.State.Running}}", container_name,
-    ])
-    return rc == 0 and stdout.strip().lower() == "true"
+    return container_status(container_name) == "running"
 
 
 def _check_network_namespace(container_name: str, plane_name: str) -> bool:

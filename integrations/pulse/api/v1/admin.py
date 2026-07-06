@@ -182,3 +182,160 @@ async def get_user_profile(
         email=profile.email,
         message="Profile retrieved.",
     )
+
+
+# ---------------------------------------------------------------------------
+# Agent monitoring — Phase 6 admin dashboard backend
+#
+# Cross-cutting rule: admin sees METRICS, never secrets. These endpoints
+# expose registry metadata, container state, and heartbeat times only —
+# no config contents, no memory, no env values.
+# ---------------------------------------------------------------------------
+
+from pydantic import BaseModel
+
+from integrations.pulse.core.store import checkin_store
+from provisioning.cli import docker_status
+from provisioning.cli.registry import list_planes
+
+
+class AgentSlotStatus(BaseModel):
+    completed: bool = False
+    time: str | None = None
+
+
+class AgentStatusOut(BaseModel):
+    agent_id: str
+    owner: str
+    role: str
+    plane: str
+    container: str  # running | stopped | missing | unavailable
+    morning_checkin: AgentSlotStatus
+    evening_checkin: AgentSlotStatus
+
+
+class AgentListResponse(BaseModel):
+    agents: list[AgentStatusOut]
+    docker_available: bool
+
+
+class AgentLogsResponse(BaseModel):
+    agent_id: str
+    lines: list[str]
+
+
+class AgentActionResponse(BaseModel):
+    agent_id: str
+    ok: bool
+    message: str
+
+
+def _registered_agents() -> dict[str, dict[str, Any]]:
+    """Flatten the plane registry into {agent_id: record}."""
+    agents: dict[str, dict[str, Any]] = {}
+    for plane in list_planes().values():
+        for agent_id, record in plane.get("agents", {}).items():
+            agents[agent_id] = record
+    return agents
+
+
+def _checkin_slots(agent_id: str, owner: str) -> tuple[AgentSlotStatus, AgentSlotStatus]:
+    """Today's morning/evening heartbeat for an agent.
+
+    Check-ins may be keyed by the agent slug (agent-token posts) or the
+    owner identity (scheduler/owner posts) — merge both.
+    """
+    morning = AgentSlotStatus()
+    evening = AgentSlotStatus()
+    for key in (agent_id, owner):
+        data = checkin_store.get_today_status(key)
+        if not morning.completed and data["morning"]["completed"]:
+            morning = AgentSlotStatus(
+                completed=True, time=data["morning"].get("time")
+            )
+        if not evening.completed and data["evening"]["completed"]:
+            evening = AgentSlotStatus(
+                completed=True, time=data["evening"].get("time")
+            )
+    return morning, evening
+
+
+@router.get("/agents", response_model=AgentListResponse)
+async def list_agent_status(
+    caller: dict[str, Any] = Depends(get_current_user_with_role),
+) -> AgentListResponse:
+    """List all registered agents with live container state and heartbeats."""
+    _require_admin(caller)
+
+    agents: list[AgentStatusOut] = []
+    docker_available = True
+    for agent_id, record in sorted(_registered_agents().items()):
+        container = docker_status.container_status(
+            docker_status.agent_container_name(agent_id)
+        )
+        if container == "unavailable":
+            docker_available = False
+        morning, evening = _checkin_slots(agent_id, record.get("owner", ""))
+        agents.append(
+            AgentStatusOut(
+                agent_id=agent_id,
+                owner=record.get("owner", ""),
+                role=record.get("role", "standard"),
+                plane=record.get("plane", ""),
+                container=container,
+                morning_checkin=morning,
+                evening_checkin=evening,
+            )
+        )
+    return AgentListResponse(agents=agents, docker_available=docker_available)
+
+
+def _require_registered_agent(agent_id: str) -> None:
+    """403 unless agent_id is in the registry — never touch arbitrary containers."""
+    if agent_id not in _registered_agents():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Agent {agent_id!r} is not registered.",
+        )
+
+
+@router.get("/agents/{agent_id}/logs", response_model=AgentLogsResponse)
+async def get_agent_logs(
+    agent_id: str,
+    tail: int = 100,
+    caller: dict[str, Any] = Depends(get_current_user_with_role),
+) -> AgentLogsResponse:
+    """Last *tail* container log lines for a registered agent. ADMIN only."""
+    _require_admin(caller)
+    _require_registered_agent(agent_id)
+    tail = max(1, min(tail, 1000))
+
+    ok, lines = docker_status.container_logs(
+        docker_status.agent_container_name(agent_id), tail=tail
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Could not read logs: {lines[0] if lines else 'unknown error'}",
+        )
+    return AgentLogsResponse(agent_id=agent_id, lines=lines)
+
+
+@router.post("/agents/{agent_id}/restart", response_model=AgentActionResponse)
+async def restart_agent(
+    agent_id: str,
+    caller: dict[str, Any] = Depends(get_current_user_with_role),
+) -> AgentActionResponse:
+    """Restart a registered agent's container. ADMIN only."""
+    _require_admin(caller)
+    _require_registered_agent(agent_id)
+
+    ok, message = docker_status.restart_container(
+        docker_status.agent_container_name(agent_id)
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Restart failed: {message}",
+        )
+    return AgentActionResponse(agent_id=agent_id, ok=True, message=message)
