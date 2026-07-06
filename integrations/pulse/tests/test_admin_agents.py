@@ -205,6 +205,7 @@ class TestN8nStatus:
                 {"status": "success"},
                 {"status": "success"},
                 {"status": "error"},
+                {"status": "canceled"},  # terminal — counts as a failure
                 {"status": "running"},   # unfinished — excluded from the rate
                 {"status": "waiting"},   # unfinished — excluded from the rate
             ]
@@ -213,10 +214,10 @@ class TestN8nStatus:
         data = admin_client.get("/api/v1/admin/n8n/status").json()
         assert data["enabled"] is True
         assert data["reachable"] is True
-        assert data["sampled"] == 6
+        assert data["sampled"] == 7
         assert data["succeeded"] == 3
-        assert data["failed"] == 1
-        assert data["success_rate"] == 0.75
+        assert data["failed"] == 2
+        assert data["success_rate"] == 0.6
 
     def test_unreachable_n8n_is_reported_not_500(
         self, admin_client: TestClient, monkeypatch

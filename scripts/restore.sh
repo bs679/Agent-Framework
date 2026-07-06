@@ -2,8 +2,9 @@
 # =============================================================================
 # AIOS/Pulse — Disaster Recovery Restore Script
 #
-# Restores PostgreSQL database and agent memory volumes from a backup created
-# by scripts/backup.sh.
+# Restores PostgreSQL database (from scripts/backup.sh) and agent memory
+# volumes (from "aios planes backup" — encrypted .tar.gz.enc archives need
+# AIOS_BACKUP_KEY set; legacy plaintext .tar.gz archives restore directly).
 #
 # Usage:
 #   ./scripts/restore.sh YYYY-MM-DD [--agent <agent-id>] [--db-only] [--memory-only]
@@ -128,29 +129,53 @@ fi
 if [ "$DB_ONLY" = false ]; then
     AGENTS_DIR="$PROJECT_ROOT/agents"
 
-    if [ -n "$TARGET_AGENT" ]; then
-        # Restore a single agent
-        archive="$BACKUP_DIR/memory-${TARGET_AGENT}.tar.gz"
-        if [ ! -f "$archive" ]; then
-            die "Memory archive not found: $archive"
+    # Decrypt a Fernet-encrypted archive to stdout (requires AIOS_BACKUP_KEY)
+    decrypt_archive() {
+        if [ -z "${AIOS_BACKUP_KEY:-}" ]; then
+            die "AIOS_BACKUP_KEY must be set to restore encrypted archives"
         fi
-        log "Restoring memory for agent '$TARGET_AGENT'..."
-        rm -rf "$AGENTS_DIR/$TARGET_AGENT/memory"
-        tar -xzf "$archive" -C "$AGENTS_DIR"
-        log "  Memory restored: $AGENTS_DIR/$TARGET_AGENT/memory/"
+        python3 -c '
+import os, sys
+from cryptography.fernet import Fernet
+key = os.environ["AIOS_BACKUP_KEY"].encode()
+sys.stdout.buffer.write(Fernet(key).decrypt(open(sys.argv[1], "rb").read()))
+' "$1"
+    }
+
+    # Restore one agent memory archive (encrypted preferred, plaintext legacy)
+    restore_agent_memory() {
+        agent_id="$1"
+        enc="$BACKUP_DIR/memory-${agent_id}.tar.gz.enc"
+        plain="$BACKUP_DIR/memory-${agent_id}.tar.gz"
+        if [ -f "$enc" ]; then
+            log "  Restoring agent '$agent_id' (encrypted)..."
+            rm -rf "$AGENTS_DIR/$agent_id/memory"
+            decrypt_archive "$enc" | tar -xzf - -C "$AGENTS_DIR"
+        elif [ -f "$plain" ]; then
+            log "  Restoring agent '$agent_id' (plaintext legacy archive)..."
+            rm -rf "$AGENTS_DIR/$agent_id/memory"
+            tar -xzf "$plain" -C "$AGENTS_DIR"
+        else
+            die "Memory archive not found for '$agent_id' (looked for $enc and $plain)"
+        fi
+        log "    Restored: $AGENTS_DIR/$agent_id/memory/"
+    }
+
+    if [ -n "$TARGET_AGENT" ]; then
+        restore_agent_memory "$TARGET_AGENT"
     else
-        # Restore all agents found in the backup
         log "Restoring all agent memory volumes..."
-        for archive in "$BACKUP_DIR"/memory-*.tar.gz; do
+        found=false
+        for archive in "$BACKUP_DIR"/memory-*.tar.gz "$BACKUP_DIR"/memory-*.tar.gz.enc; do
             [ -f "$archive" ] || continue
+            found=true
             filename="$(basename "$archive")"
             agent_id="${filename#memory-}"
+            agent_id="${agent_id%.tar.gz.enc}"
             agent_id="${agent_id%.tar.gz}"
-            log "  Restoring agent '$agent_id'..."
-            rm -rf "$AGENTS_DIR/$agent_id/memory"
-            tar -xzf "$archive" -C "$AGENTS_DIR"
-            log "    Restored: $AGENTS_DIR/$agent_id/memory/"
+            restore_agent_memory "$agent_id"
         done
+        [ "$found" = true ] || log "  No memory archives found in $BACKUP_DIR"
     fi
 fi
 

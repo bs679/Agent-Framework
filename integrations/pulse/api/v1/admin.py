@@ -394,9 +394,13 @@ async def n8n_status(
         return N8nStatusResponse(enabled=True, reachable=False)
 
     # n8n execution status values: success | error | crashed | canceled |
-    # waiting | running — rate is computed over finished ones only
+    # waiting | running — the rate is computed over finished (terminal)
+    # executions; canceled counts as a failure so operator-aborted runs
+    # don't inflate the success rate
     succeeded = sum(1 for e in executions if e.get("status") == "success")
-    failed = sum(1 for e in executions if e.get("status") in ("error", "crashed"))
+    failed = sum(
+        1 for e in executions if e.get("status") in ("error", "crashed", "canceled")
+    )
     finished = succeeded + failed
     return N8nStatusResponse(
         enabled=True,

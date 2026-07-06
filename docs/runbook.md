@@ -53,7 +53,7 @@ response, and adding new staff agents.
    Two backup jobs run nightly via cron:
 
    ```cron
-   # PostgreSQL dump + memory tars (shell path)
+   # PostgreSQL dump (shell path — memory is NOT backed up here)
    0 2 * * * /path/to/Agent-Framework/scripts/backup.sh >> /var/log/aios-backup.log 2>&1
    # Encrypted agent-memory backup (CLI path — set AIOS_BACKUP_KEY!)
    15 2 * * * cd /path/to/Agent-Framework && AIOS_BACKUP_KEY=<key> aios planes backup >> /var/log/aios-backup.log 2>&1
