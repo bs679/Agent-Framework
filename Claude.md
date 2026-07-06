@@ -377,6 +377,12 @@ If upstream ships Phase 1 before we reach production, evaluate whether to migrat
 
 ---
 
+## Working Preferences (Dave)
+
+- **After creating a pull request, always subscribe to its activity** (`subscribe_pr_activity`) and babysit it until merged or closed: fix CI failures, respond to review comments, and schedule periodic self check-ins on its status.
+
+---
+
 ## Session Startup Checklist
 
 1. Read this file (CLAUDE.md) fully
@@ -387,4 +393,4 @@ If upstream ships Phase 1 before we reach production, evaluate whether to migrat
 
 ---
 
-*Last updated: February 2026*
+*Last updated: July 2026*
