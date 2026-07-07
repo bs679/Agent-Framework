@@ -171,3 +171,64 @@ class TestAgentRestart:
         )
         resp = admin_client.post("/api/v1/admin/agents/president-dave/restart")
         assert resp.status_code == 502
+
+
+class TestN8nStatus:
+    def test_requires_admin(self, staff_client: TestClient) -> None:
+        resp = staff_client.get("/api/v1/admin/n8n/status")
+        assert resp.status_code == 403
+
+    def test_disabled_when_unconfigured(self, admin_client: TestClient, monkeypatch) -> None:
+        monkeypatch.delenv("N8N_API_URL", raising=False)
+        monkeypatch.delenv("N8N_API_KEY", raising=False)
+        data = admin_client.get("/api/v1/admin/n8n/status").json()
+        assert data == {
+            "enabled": False,
+            "reachable": False,
+            "sampled": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "success_rate": None,
+        }
+
+    def test_success_rate_over_finished_executions(
+        self, admin_client: TestClient, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("N8N_API_URL", "http://n8n.local:5678")
+        monkeypatch.setenv("N8N_API_KEY", "test-key")
+
+        async def fake_fetch(url, api_key, limit=50):
+            assert url == "http://n8n.local:5678"
+            assert api_key == "test-key"
+            return [
+                {"status": "success"},
+                {"status": "success"},
+                {"status": "success"},
+                {"status": "error"},
+                {"status": "canceled"},  # terminal — counts as a failure
+                {"status": "running"},   # unfinished — excluded from the rate
+                {"status": "waiting"},   # unfinished — excluded from the rate
+            ]
+
+        monkeypatch.setattr(admin_module, "_fetch_n8n_executions", fake_fetch)
+        data = admin_client.get("/api/v1/admin/n8n/status").json()
+        assert data["enabled"] is True
+        assert data["reachable"] is True
+        assert data["sampled"] == 7
+        assert data["succeeded"] == 3
+        assert data["failed"] == 2
+        assert data["success_rate"] == 0.6
+
+    def test_unreachable_n8n_is_reported_not_500(
+        self, admin_client: TestClient, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("N8N_API_URL", "http://n8n.local:5678")
+        monkeypatch.setenv("N8N_API_KEY", "test-key")
+
+        async def fake_fetch(url, api_key, limit=50):
+            raise ConnectionError("refused")
+
+        monkeypatch.setattr(admin_module, "_fetch_n8n_executions", fake_fetch)
+        data = admin_client.get("/api/v1/admin/n8n/status").json()
+        assert data["enabled"] is True
+        assert data["reachable"] is False

@@ -4,7 +4,11 @@
 #
 # Creates a timestamped backup of:
 #   - PostgreSQL database (pg_dump → gzip)
-#   - Agent memory volumes (tar.gz per agent)
+#
+# Agent memory volumes are NOT backed up here — use the encrypted CLI path
+# instead ("aios planes backup" with AIOS_BACKUP_KEY), which writes
+# Fernet-encrypted archives. A plaintext memory tar alongside it would
+# defeat the encryption requirement for sensitive union data.
 #
 # Run via cron:
 #   0 2 * * * /path/to/Agent-Framework/scripts/backup.sh >> /var/log/aios-backup.log 2>&1
@@ -68,33 +72,9 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 2. Agent memory volumes
+# 2. Agent memory volumes — handled by "aios planes backup" (encrypted)
 # ---------------------------------------------------------------------------
-AGENTS_DIR="$PROJECT_ROOT/agents"
-if [ -d "$AGENTS_DIR" ]; then
-    log "Backing up agent memory volumes..."
-    for agent_dir in "$AGENTS_DIR"/*/; do
-        [ -d "$agent_dir" ] || continue
-        agent_id="$(basename "$agent_dir")"
-        memory_dir="$agent_dir/memory"
-
-        # Skip agents with no memory directory
-        if [ ! -d "$memory_dir" ]; then
-            log "  $agent_id: no memory directory, skipping"
-            continue
-        fi
-
-        archive="$BACKUP_DIR/memory-${agent_id}.tar.gz"
-        if tar -czf "$archive" -C "$AGENTS_DIR" "${agent_id}/memory/"; then
-            SIZE="$(du -sh "$archive" | cut -f1)"
-            log "  $agent_id memory: $archive ($SIZE)"
-        else
-            log_error "  Failed to archive memory for agent $agent_id"
-        fi
-    done
-else
-    log "No agents directory found at $AGENTS_DIR — skipping memory backup"
-fi
+log "Agent memory is backed up separately via 'aios planes backup' (encrypted)."
 
 # ---------------------------------------------------------------------------
 # 3. Write manifest
